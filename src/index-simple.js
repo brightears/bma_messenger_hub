@@ -3,6 +3,10 @@ const { sendMessage } = require('./services/google-chat-simple');
 const { parseWhatsAppMessage, parseLineMessage, isValidMessage } = require('./services/message-processor');
 const { routeMessage, aiHealthCheck } = require('./services/message-router');
 const { translateMessage, healthCheck: translatorHealthCheck } = require('./services/translator');
+const { processGoogleChatWebhook } = require('./webhooks/google-chat');
+const { healthCheck: whatsappHealthCheck } = require('./services/whatsapp-sender');
+const { healthCheck: lineHealthCheck } = require('./services/line-sender');
+const { getStats } = require('./services/conversation-store');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -15,20 +19,32 @@ app.use(express.json());
 // Health check endpoint
 app.get('/health', async (req, res) => {
   try {
-    const aiHealth = await aiHealthCheck();
-    const translatorHealth = await translatorHealthCheck();
+    const [aiHealth, translatorHealth, whatsappHealth, lineHealth] = await Promise.all([
+      aiHealthCheck(),
+      translatorHealthCheck(),
+      whatsappHealthCheck(),
+      lineHealthCheck()
+    ]);
+
+    const conversationStats = getStats();
+
     res.json({
       status: 'ok',
       service: 'BMA Messenger Hub',
       ai: aiHealth,
-      translator: translatorHealth
+      translator: translatorHealth,
+      whatsapp: whatsappHealth,
+      line: lineHealth,
+      conversations: conversationStats
     });
   } catch (error) {
     res.json({
       status: 'ok',
       service: 'BMA Messenger Hub',
       ai: { status: 'error', message: error.message },
-      translator: { status: 'error', message: error.message }
+      translator: { status: 'error', message: error.message },
+      whatsapp: { status: 'error', message: error.message },
+      line: { status: 'error', message: error.message }
     });
   }
 });
@@ -41,6 +57,7 @@ app.get('/', (req, res) => {
     endpoints: {
       whatsapp: '/webhooks/whatsapp',
       line: '/webhooks/line',
+      googleChat: '/webhooks/google-chat',
       health: '/health'
     }
   });
@@ -150,6 +167,18 @@ app.post('/webhooks/line', async (req, res) => {
     console.error('Error processing LINE webhook:', error);
     // Don't crash the service - just log and respond
     res.sendStatus(200);
+  }
+});
+
+// Google Chat webhook
+app.post('/webhooks/google-chat', async (req, res) => {
+  try {
+    await processGoogleChatWebhook(req, res);
+  } catch (error) {
+    console.error('Error processing Google Chat webhook:', error);
+    res.status(200).json({
+      text: `❌ Error processing message: ${error.message}`
+    });
   }
 });
 

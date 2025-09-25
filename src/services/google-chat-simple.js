@@ -1,4 +1,5 @@
 const { google } = require('googleapis');
+const { storeConversation } = require('./conversation-store');
 
 class GoogleChatService {
   constructor() {
@@ -69,6 +70,20 @@ class GoogleChatService {
 
       console.log(`✅ Message successfully sent to ${spaceId}`);
       console.log(`Message ID: ${response.data.name}`);
+
+      // Store conversation mapping for bidirectional messaging
+      if (senderInfo.platform && senderInfo.senderId) {
+        const threadId = response.data.thread?.name || response.data.name;
+        const conversationId = storeConversation(
+          senderInfo.platform,
+          senderInfo.senderId,
+          threadId,
+          spaceId,
+          senderInfo
+        );
+        console.log(`Stored conversation mapping: ${conversationId}`);
+      }
+
       return response.data;
     } catch (error) {
       console.error('❌ Failed to send message to Google Chat');
@@ -130,6 +145,9 @@ class GoogleChatService {
     }
 
     formattedMessage += `\n*Message:*\n${message}`;
+
+    // Add reply instructions
+    formattedMessage += `\n\n---\n*💬 To reply:* Simply reply to this message or use: \`/reply [your message]\``;
 
     return formattedMessage;
   }
