@@ -110,7 +110,11 @@ class GoogleChatPoller {
       // Get recent messages from the space
       const messages = await listSpaceMessages(spaceId, 20);
 
+      console.log(`\n📊 Polling ${spaceName} space (${spaceId})`);
+      console.log(`   Retrieved ${messages ? messages.length : 0} messages`);
+
       if (!messages || messages.length === 0) {
+        console.log(`   No messages found in ${spaceName}`);
         return { totalMessages: 0, forwardedCount: 0 };
       }
 
@@ -147,13 +151,22 @@ class GoogleChatPoller {
   async processMessage(spaceId, message) {
     const spaceName = this.spaceNames[spaceId] || spaceId;
 
+    console.log(`\n   🔍 Processing message in ${spaceName}:`);
+    console.log(`      Message ID: ${message.name}`);
+    console.log(`      Thread ID: ${message.thread?.name || 'No thread'}`);
+    console.log(`      Sender: ${message.sender?.displayName || 'Unknown'} (Type: ${message.sender?.type || 'Unknown'})`);
+    console.log(`      Text preview: ${message.text ? message.text.substring(0, 50) + '...' : 'No text'}`);
+    console.log(`      Created at: ${message.createTime}`);
+
     // Skip if no message content
     if (!message.text) {
+      console.log(`      ⏭️  Skipped: No message content`);
       return false;
     }
 
     // Skip if message is from a bot
     if (message.sender && message.sender.type === 'BOT') {
+      console.log(`      ⏭️  Skipped: Message from bot`);
       return false;
     }
 
@@ -166,17 +179,35 @@ class GoogleChatPoller {
     const threadId = message.thread?.name;
     if (!threadId) {
       // Not in a thread, skip
+      console.log(`      ⏭️  Skipped: Not in a thread`);
       setLastProcessed(spaceId, message.name);
       return false;
     }
 
+    console.log(`      📍 Thread ID: ${threadId}`);
+
     // Look for conversation mapping by thread ID
+    console.log(`      🔎 Looking for conversation with thread ID: ${threadId}`);
     const conversation = conversationStore.getConversationByThread(threadId);
+
+    // Also log all stored conversations for debugging
+    const allConversations = conversationStore.getStats();
+    console.log(`      📋 Total stored conversations: ${allConversations.totalConversations}`);
+    if (allConversations.totalConversations > 0) {
+      console.log(`      📋 Active conversations:`);
+      for (const conv of allConversations.activeConversations) {
+        console.log(`         - ${conv.platform} user ${conv.userId}: thread=${conv.threadId}`);
+      }
+    }
+
     if (!conversation) {
       // No conversation mapping found, skip
+      console.log(`      ⏭️  Skipped: No conversation found for thread ${threadId}`);
       setLastProcessed(spaceId, message.name);
       return false;
     }
+
+    console.log(`      ✅ Found conversation: ${conversation.platform} user ${conversation.userId}`);
 
     // This is a reply in a thread we started - forward it!
     console.log(`📤 Forwarding reply from ${spaceName} to ${conversation.platform} user ${conversation.userId}`);

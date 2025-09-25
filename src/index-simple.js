@@ -207,6 +207,59 @@ app.get('/polling/status', (req, res) => {
   }
 });
 
+// Debug endpoint for polling diagnostics
+app.get('/polling/debug', async (req, res) => {
+  try {
+    const pollingStatus = getPollingStatus();
+    const conversationStats = getStats();
+    const pollingStats = getPollingStats();
+
+    // Get recent messages from each space for debugging
+    const spaceMessages = {};
+    for (const space of ['spaces/AAQA6WeunF8', 'spaces/AAQALSfR5k4', 'spaces/AAQAfKFrdxQ']) {
+      try {
+        const { listSpaceMessages } = require('./services/google-chat-simple');
+        const messages = await listSpaceMessages(space, 5);
+        spaceMessages[space] = messages.map(msg => ({
+          id: msg.name,
+          threadId: msg.thread?.name || 'No thread',
+          text: msg.text?.substring(0, 100) || 'No text',
+          sender: msg.sender?.displayName || 'Unknown',
+          senderType: msg.sender?.type || 'Unknown',
+          createTime: msg.createTime
+        }));
+      } catch (error) {
+        spaceMessages[space] = { error: error.message };
+      }
+    }
+
+    res.json({
+      status: 'ok',
+      debug: {
+        polling: pollingStatus,
+        conversations: {
+          total: conversationStats.totalConversations,
+          active: conversationStats.activeConversations.map(conv => ({
+            id: conv.id,
+            platform: conv.platform,
+            userId: conv.userId,
+            threadId: conv.threadId,
+            spaceId: conv.spaceId,
+            lastActivity: conv.lastActivity
+          }))
+        },
+        recentMessages: spaceMessages,
+        timestamp: new Date().toISOString()
+      }
+    });
+  } catch (error) {
+    res.json({
+      status: 'error',
+      message: error.message
+    });
+  }
+});
+
 app.post('/polling/start', async (req, res) => {
   try {
     await startPolling();

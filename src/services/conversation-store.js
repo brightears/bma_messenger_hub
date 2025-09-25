@@ -48,13 +48,20 @@ class ConversationStore {
       id: conversationId,
       platform: platform,
       userId: userId,
-      gchatThreadId: gchatThreadId,
+      threadId: gchatThreadId,  // Changed from gchatThreadId to threadId for consistency
       spaceId: spaceId,
       senderInfo: senderInfo,
       createdAt: now,
       lastActivity: now,
       expiresAt: now + (this.TTL_HOURS * 60 * 60 * 1000)
     };
+
+    console.log(`🔗 Storing conversation mapping:`);
+    console.log(`   ID: ${conversationId}`);
+    console.log(`   Platform: ${platform}`);
+    console.log(`   User: ${userId}`);
+    console.log(`   Thread ID: ${gchatThreadId}`);
+    console.log(`   Space: ${spaceId}`);
 
     // Store conversation
     this.conversations.set(conversationId, conversation);
@@ -112,9 +119,13 @@ class ConversationStore {
    * @returns {Object|null} Conversation data or null
    */
   getConversationByThread(gchatThreadId) {
+    console.log(`🔍 Searching for conversation with thread ID: ${gchatThreadId}`);
+
     // Search through conversations for matching thread ID
     for (const [conversationId, conversation] of this.conversations.entries()) {
-      if (conversation.gchatThreadId === gchatThreadId) {
+      console.log(`   Checking: ${conversation.threadId} === ${gchatThreadId}`);
+
+      if (conversation.threadId === gchatThreadId) {  // Changed from gchatThreadId to threadId
         // Check if expired
         if (Date.now() > conversation.expiresAt) {
           this.removeConversation(conversationId);
@@ -123,10 +134,12 @@ class ConversationStore {
 
         // Update last activity
         conversation.lastActivity = Date.now();
+        console.log(`   ✅ Found conversation: ${conversationId}`);
         return conversation;
       }
     }
 
+    console.log(`   ❌ No conversation found for thread ${gchatThreadId}`);
     return null;
   }
 
@@ -201,7 +214,8 @@ class ConversationStore {
       totalConversations: this.conversations.size,
       platformBreakdown: {},
       oldestConversation: null,
-      newestConversation: null
+      newestConversation: null,
+      activeConversations: []  // Add list of active conversations for debugging
     };
 
     for (const conversation of this.conversations.values()) {
@@ -217,6 +231,16 @@ class ConversationStore {
       if (!stats.newestConversation || conversation.createdAt > stats.newestConversation) {
         stats.newestConversation = conversation.createdAt;
       }
+
+      // Add to active conversations list
+      stats.activeConversations.push({
+        id: conversation.id,
+        platform: conversation.platform,
+        userId: conversation.userId,
+        threadId: conversation.threadId,
+        spaceId: conversation.spaceId,
+        lastActivity: new Date(conversation.lastActivity).toISOString()
+      });
     }
 
     return stats;

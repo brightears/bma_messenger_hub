@@ -70,10 +70,21 @@ class GoogleChatService {
 
       console.log(`✅ Message successfully sent to ${spaceId}`);
       console.log(`Message ID: ${response.data.name}`);
+      console.log(`Thread info:`, JSON.stringify(response.data.thread, null, 2));
 
       // Store conversation mapping for bidirectional messaging
       if (senderInfo.platform && senderInfo.senderId) {
+        // IMPORTANT: Use thread.name if available (message is in a thread)
+        // Otherwise create a new thread ID from the message name
+        // Google Chat creates a thread automatically for the first message
         const threadId = response.data.thread?.name || response.data.name;
+
+        console.log(`🔗 Storing conversation mapping:`);
+        console.log(`   Platform: ${senderInfo.platform}`);
+        console.log(`   User ID: ${senderInfo.senderId}`);
+        console.log(`   Thread ID: ${threadId}`);
+        console.log(`   Space ID: ${spaceId}`);
+
         const conversationId = storeConversation(
           senderInfo.platform,
           senderInfo.senderId,
@@ -81,7 +92,7 @@ class GoogleChatService {
           spaceId,
           senderInfo
         );
-        console.log(`Stored conversation mapping: ${conversationId}`);
+        console.log(`   Conversation ID: ${conversationId}`);
       }
 
       return response.data;
