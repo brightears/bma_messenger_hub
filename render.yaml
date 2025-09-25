@@ -1,11 +1,10 @@
 services:
   - type: web
     name: bma-messenger-hub
-    runtime: node
+    runtime: docker
     repo: https://github.com/brightears/bma_messenger_hub.git
     branch: main
-    buildCommand: npm ci && npm run build
-    startCommand: npm start
+    region: singapore
     healthCheckPath: /health
     envVars:
       - key: NODE_ENV
@@ -55,6 +54,6 @@ services:
       - key: GOOGLE_CREDENTIALS_JSON
         sync: false
       - key: USE_DATABASE
-        value: false
+        value: "false"
       - key: REDIS_URL
         sync: false
