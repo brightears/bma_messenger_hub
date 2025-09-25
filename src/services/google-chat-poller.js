@@ -81,21 +81,24 @@ class GoogleChatPoller {
     let totalMessages = 0;
     let forwardedCount = 0;
 
+    console.log(`\n🔄 Starting polling cycle at ${new Date().toISOString()}`);
+
     for (const spaceId of this.spaces) {
       try {
         const result = await this.pollSpace(spaceId);
         totalMessages += result.totalMessages;
         forwardedCount += result.forwardedCount;
       } catch (error) {
-        console.error(`Error polling space ${this.spaceNames[spaceId] || spaceId}:`, error.message);
+        console.error(`❌ Error polling space ${this.spaceNames[spaceId] || spaceId}:`);
+        console.error(`   Error: ${error.message}`);
+        if (error.stack) {
+          console.error(`   Stack: ${error.stack.split('\n')[0]}`);
+        }
       }
     }
 
     const elapsed = Date.now() - startTime;
-
-    if (totalMessages > 0 || forwardedCount > 0) {
-      console.log(`Polling cycle completed in ${elapsed}ms: ${totalMessages} messages checked, ${forwardedCount} forwarded`);
-    }
+    console.log(`✅ Polling cycle completed in ${elapsed}ms: ${totalMessages} messages checked, ${forwardedCount} forwarded`);
   }
 
   /**
@@ -108,13 +111,15 @@ class GoogleChatPoller {
 
     try {
       // Get recent messages from the space
+      console.log(`\n📊 Polling ${spaceName} space (${spaceId})`);
+      console.log(`   Calling listSpaceMessages...`);
+
       const messages = await listSpaceMessages(spaceId, 20);
 
-      console.log(`\n📊 Polling ${spaceName} space (${spaceId})`);
       console.log(`   Retrieved ${messages ? messages.length : 0} messages`);
 
       if (!messages || messages.length === 0) {
-        console.log(`   No messages found in ${spaceName}`);
+        console.log(`   No messages found in ${spaceName} (this might be normal if the space is quiet)`);
         return { totalMessages: 0, forwardedCount: 0 };
       }
 

@@ -17,12 +17,16 @@ class GoogleChatService {
 
       const credentials = JSON.parse(credentialsJson);
 
-      // Create JWT auth
+      // Create JWT auth with scopes for both sending and reading messages
       this.auth = new google.auth.JWT(
         credentials.client_email,
         null,
         credentials.private_key,
-        ['https://www.googleapis.com/auth/chat.bot']
+        [
+          'https://www.googleapis.com/auth/chat.bot',
+          'https://www.googleapis.com/auth/chat.messages',
+          'https://www.googleapis.com/auth/chat.messages.readonly'
+        ]
       );
 
       // Initialize Google Chat API
@@ -184,6 +188,9 @@ class GoogleChatService {
 
       console.log(`Fetching messages from space: ${spaceId} (pageSize: ${pageSize})`);
 
+      // Log the auth scopes being used
+      console.log(`Auth scopes: ${this.auth.scopes}`);
+
       const response = await this.chat.spaces.messages.list({
         parent: spaceId,
         pageSize: pageSize,
@@ -192,6 +199,17 @@ class GoogleChatService {
 
       const messages = response.data.messages || [];
       console.log(`Retrieved ${messages.length} messages from ${spaceId}`);
+
+      // Log first message details for debugging
+      if (messages.length > 0) {
+        console.log(`First message:`, {
+          name: messages[0].name,
+          thread: messages[0].thread?.name,
+          text: messages[0].text?.substring(0, 50),
+          sender: messages[0].sender?.displayName,
+          createTime: messages[0].createTime
+        });
+      }
 
       return messages;
 
