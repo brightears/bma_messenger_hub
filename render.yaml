@@ -10,6 +10,8 @@ services:
     dockerContext: .
     dockerfilePath: ./Dockerfile
     healthCheckPath: /health-simple
+    # Optimize for faster deployments
+    autoDeploy: true
     envVars:
       - key: NODE_ENV
         value: production
