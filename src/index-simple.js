@@ -1,7 +1,7 @@
 const express = require('express');
 const { sendMessage } = require('./services/google-chat-simple');
 const { parseWhatsAppMessage, parseLineMessage, isValidMessage } = require('./services/message-processor');
-const { routeMessage } = require('./services/message-router');
+const { routeMessage, aiHealthCheck } = require('./services/message-router');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -12,8 +12,21 @@ const PORT = process.env.PORT || 10000;
 app.use(express.json());
 
 // Health check endpoint
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok', service: 'BMA Messenger Hub' });
+app.get('/health', async (req, res) => {
+  try {
+    const aiHealth = await aiHealthCheck();
+    res.json({
+      status: 'ok',
+      service: 'BMA Messenger Hub',
+      ai: aiHealth
+    });
+  } catch (error) {
+    res.json({
+      status: 'ok',
+      service: 'BMA Messenger Hub',
+      ai: { status: 'error', message: error.message }
+    });
+  }
 });
 
 // Root endpoint
@@ -56,8 +69,8 @@ app.post('/webhooks/whatsapp', async (req, res) => {
       console.log('Parsed WhatsApp message:', parsedMessage);
 
       // Route message to appropriate department
-      const routing = routeMessage(parsedMessage.messageText);
-      console.log(`Routing WhatsApp message to ${routing.department} department`);
+      const routing = await routeMessage(parsedMessage.messageText);
+      console.log(`Routing WhatsApp message to ${routing.department} department (source: ${routing.source})`);
 
       // Forward to appropriate Google Chat space
       await sendMessage(routing.spaceId, parsedMessage.messageText, parsedMessage);
@@ -86,8 +99,8 @@ app.post('/webhooks/line', async (req, res) => {
       console.log('Parsed LINE message:', parsedMessage);
 
       // Route message to appropriate department
-      const routing = routeMessage(parsedMessage.messageText);
-      console.log(`Routing LINE message to ${routing.department} department`);
+      const routing = await routeMessage(parsedMessage.messageText);
+      console.log(`Routing LINE message to ${routing.department} department (source: ${routing.source})`);
 
       // Forward to appropriate Google Chat space
       await sendMessage(routing.spaceId, parsedMessage.messageText, parsedMessage);

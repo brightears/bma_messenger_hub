@@ -22,6 +22,7 @@
   "author": "BMA",
   "license": "MIT",
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "@line/bot-sdk": "^9.1.0",
     "axios": "^1.7.5",
     "bull": "^4.16.0",

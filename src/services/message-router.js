@@ -1,5 +1,7 @@
 // Message routing service for BMA Messenger Hub
-// Routes messages to appropriate Google Chat spaces based on keywords
+// Routes messages to appropriate Google Chat spaces based on keywords and AI classification
+
+const aiClassifier = require('./ai-classifier');
 
 // Google Chat space IDs
 const SPACE_IDS = {
@@ -28,16 +30,18 @@ const KEYWORDS = {
 };
 
 /**
- * Routes a message to the appropriate Google Chat space based on keywords
+ * Routes a message to the appropriate Google Chat space based on keywords and AI classification
  * @param {string} messageText - The message text to analyze
- * @returns {Object} - Object containing spaceId and department
+ * @returns {Promise<Object>} - Object containing spaceId, department, and routing info
  */
-function routeMessage(messageText) {
+async function routeMessage(messageText) {
   if (!messageText || typeof messageText !== 'string') {
     console.log('Invalid message text, defaulting to sales');
     return {
       spaceId: SPACE_IDS.sales,
-      department: 'sales'
+      department: 'sales',
+      source: 'default',
+      confidence: 0
     };
   }
 
@@ -46,7 +50,7 @@ function routeMessage(messageText) {
 
   console.log('Routing message:', lowerMessage.substring(0, 100) + '...');
 
-  // Check each department's keywords
+  // First, try keyword-based routing (primary method)
   for (const [department, keywords] of Object.entries(KEYWORDS)) {
     for (const keyword of keywords) {
       // Use partial matching - check if keyword is contained in the message
@@ -54,17 +58,45 @@ function routeMessage(messageText) {
         console.log(`Message routed to ${department} based on keyword: "${keyword}"`);
         return {
           spaceId: SPACE_IDS[department],
-          department: department
+          department: department,
+          source: 'keyword',
+          keyword: keyword,
+          confidence: 1.0
         };
       }
     }
   }
 
-  // Default to sales if no keywords match
-  console.log('No keywords matched, defaulting to sales');
+  // No keywords matched, try AI classification as fallback
+  console.log('No keywords matched, trying AI classification...');
+
+  try {
+    const aiResult = await aiClassifier.classifyMessage(messageText);
+
+    // Check if AI classification should be trusted
+    if (aiResult.source === 'gemini' && aiClassifier.shouldTrustClassification(aiResult.confidence)) {
+      console.log(`Message routed to ${aiResult.department} via AI classification (confidence: ${aiResult.confidence})`);
+      return {
+        spaceId: SPACE_IDS[aiResult.department],
+        department: aiResult.department,
+        source: 'ai',
+        confidence: aiResult.confidence,
+        aiResponse: aiResult.rawResponse
+      };
+    } else {
+      console.log(`AI classification confidence too low (${aiResult.confidence}) or failed, defaulting to sales`);
+    }
+  } catch (error) {
+    console.error('Error during AI classification:', error.message);
+  }
+
+  // Default to sales if both keyword matching and AI classification fail
+  console.log('Both keyword matching and AI classification failed, defaulting to sales');
   return {
     spaceId: SPACE_IDS.sales,
-    department: 'sales'
+    department: 'sales',
+    source: 'default',
+    confidence: 0
   };
 }
 
@@ -124,5 +156,9 @@ module.exports = {
   addKeyword,
   isValidSpaceId,
   SPACE_IDS,
-  KEYWORDS
+  KEYWORDS,
+  // Expose AI classifier functions
+  classifyMessage: aiClassifier.classifyMessage,
+  getAIModelInfo: aiClassifier.getModelInfo,
+  aiHealthCheck: aiClassifier.healthCheck
 };
