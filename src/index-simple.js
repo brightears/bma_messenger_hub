@@ -344,20 +344,11 @@ if (require.main === module) {
     console.log(`Health check: http://0.0.0.0:${PORT}/health`);
     console.log(`Simple health check: http://0.0.0.0:${PORT}/health-simple`);
 
-    // Start Google Chat polling automatically (non-blocking)
-    // TEMPORARILY DISABLED: Auto-start polling to debug deployment issues
-    // Use setTimeout to ensure the server is fully started first
-    setTimeout(async () => {
-      try {
-        console.log('Auto-start polling is temporarily disabled for deployment troubleshooting');
-        console.log('✅ Server started successfully. Use POST /polling/start to enable polling manually');
-        // await startPolling();
-        // console.log('✅ Google Chat polling started successfully');
-      } catch (error) {
-        console.error('❌ Failed to start Google Chat polling:', error.message);
-        console.log('⚠️  Service will continue running without polling');
-      }
-    }, 2000); // Wait 2 seconds after server start
+    // Polling disabled - Google Chat bots cannot read thread replies via API
+    // Must use webhooks for bidirectional messaging
+    console.log('✅ Server started successfully');
+    console.log('ℹ️  Google Chat polling is disabled - use webhooks for replies');
+    console.log('ℹ️  Configure Google Chat webhook URL: https://bma-messenger-hub-ooyy.onrender.com/webhooks/google-chat');
   });
 }
 

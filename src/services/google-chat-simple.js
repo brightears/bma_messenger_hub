@@ -18,14 +18,14 @@ class GoogleChatService {
       const credentials = JSON.parse(credentialsJson);
 
       // Create JWT auth with scopes for both sending and reading messages
+      // Note: Bots can only read public messages, not private messages or thread replies
       this.auth = new google.auth.JWT(
         credentials.client_email,
         null,
         credentials.private_key,
         [
           'https://www.googleapis.com/auth/chat.bot',
-          'https://www.googleapis.com/auth/chat.messages',
-          'https://www.googleapis.com/auth/chat.messages.readonly'
+          'https://www.googleapis.com/auth/chat.app.messages.readonly'
         ]
       );
 
