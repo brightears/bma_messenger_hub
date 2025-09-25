@@ -1,0 +1,60 @@
+services:
+  - type: web
+    name: bma-messenger-hub
+    runtime: node
+    repo: https://github.com/brightears/bma_messenger_hub.git
+    branch: main
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: GCHAT_TECHNICAL_SPACE
+        sync: false
+      - key: GCHAT_DESIGN_SPACE
+        sync: false
+      - key: GCHAT_SALES_SPACE
+        sync: false
+      - key: WHATSAPP_API_URL
+        sync: false
+      - key: WHATSAPP_ACCESS_TOKEN
+        sync: false
+      - key: WHATSAPP_VERIFY_TOKEN
+        sync: false
+      - key: WHATSAPP_PHONE_NUMBER_ID
+        sync: false
+      - key: WHATSAPP_WEBHOOK_SECRET
+        sync: false
+      - key: LINE_API_URL
+        sync: false
+      - key: LINE_CHANNEL_ID
+        sync: false
+      - key: LINE_CHANNEL_ACCESS_TOKEN
+        sync: false
+      - key: LINE_CHANNEL_SECRET
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash
+      - key: GEMINI_MAX_TOKENS
+        value: 8192
+      - key: GEMINI_TEMPERATURE
+        value: 0.7
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-5-mini
+      - key: OPENAI_MAX_TOKENS
+        value: 4096
+      - key: OPENAI_TEMPERATURE
+        value: 0.8
+      - key: GOOGLE_CREDENTIALS_JSON
+        sync: false
+      - key: USE_DATABASE
+        value: false
+      - key: REDIS_URL
+        sync: false
