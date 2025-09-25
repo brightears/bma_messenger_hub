@@ -7,6 +7,7 @@ const { processGoogleChatWebhook } = require('./webhooks/google-chat');
 const { healthCheck: whatsappHealthCheck } = require('./services/whatsapp-sender');
 const { healthCheck: lineHealthCheck } = require('./services/line-sender');
 const { getStats } = require('./services/conversation-store');
+const { startPolling, stopPolling, getStatus: getPollingStatus, getStats: getPollingStats } = require('./services/google-chat-poller');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -27,6 +28,7 @@ app.get('/health', async (req, res) => {
     ]);
 
     const conversationStats = getStats();
+    const pollingStatus = getPollingStatus();
 
     res.json({
       status: 'ok',
@@ -35,7 +37,8 @@ app.get('/health', async (req, res) => {
       translator: translatorHealth,
       whatsapp: whatsappHealth,
       line: lineHealth,
-      conversations: conversationStats
+      conversations: conversationStats,
+      polling: pollingStatus
     });
   } catch (error) {
     res.json({
@@ -44,7 +47,8 @@ app.get('/health', async (req, res) => {
       ai: { status: 'error', message: error.message },
       translator: { status: 'error', message: error.message },
       whatsapp: { status: 'error', message: error.message },
-      line: { status: 'error', message: error.message }
+      line: { status: 'error', message: error.message },
+      polling: { status: 'error', message: error.message }
     });
   }
 });
@@ -58,7 +62,12 @@ app.get('/', (req, res) => {
       whatsapp: '/webhooks/whatsapp',
       line: '/webhooks/line',
       googleChat: '/webhooks/google-chat',
-      health: '/health'
+      health: '/health',
+      polling: {
+        status: '/polling/status',
+        start: '/polling/start',
+        stop: '/polling/stop'
+      }
     }
   });
 });
@@ -182,11 +191,70 @@ app.post('/webhooks/google-chat', async (req, res) => {
   }
 });
 
+// Polling endpoints
+app.get('/polling/status', (req, res) => {
+  try {
+    const status = getPollingStatus();
+    res.json({
+      status: 'ok',
+      polling: status
+    });
+  } catch (error) {
+    res.json({
+      status: 'error',
+      message: error.message
+    });
+  }
+});
+
+app.post('/polling/start', async (req, res) => {
+  try {
+    await startPolling();
+    const status = getPollingStatus();
+    res.json({
+      status: 'ok',
+      message: 'Google Chat polling started',
+      polling: status
+    });
+  } catch (error) {
+    res.json({
+      status: 'error',
+      message: error.message
+    });
+  }
+});
+
+app.post('/polling/stop', (req, res) => {
+  try {
+    stopPolling();
+    const status = getPollingStatus();
+    res.json({
+      status: 'ok',
+      message: 'Google Chat polling stopped',
+      polling: status
+    });
+  } catch (error) {
+    res.json({
+      status: 'error',
+      message: error.message
+    });
+  }
+});
+
 // Start server only if not being imported (for testing)
 if (require.main === module) {
-  app.listen(PORT, '0.0.0.0', () => {
+  app.listen(PORT, '0.0.0.0', async () => {
     console.log(`BMA Messenger Hub is running on port ${PORT}`);
     console.log(`Health check: http://0.0.0.0:${PORT}/health`);
+
+    // Start Google Chat polling automatically
+    try {
+      console.log('Starting Google Chat polling...');
+      await startPolling();
+      console.log('✅ Google Chat polling started successfully');
+    } catch (error) {
+      console.error('❌ Failed to start Google Chat polling:', error.message);
+    }
   });
 }
 

@@ -152,6 +152,60 @@ class GoogleChatService {
     return formattedMessage;
   }
 
+  /**
+   * List recent messages in a Google Chat space
+   * @param {string} spaceId - Google Chat space ID
+   * @param {number} pageSize - Number of messages to retrieve (default: 20)
+   * @returns {Promise<Array>} Array of message objects or empty array on error
+   */
+  async listSpaceMessages(spaceId, pageSize = 20) {
+    try {
+      if (!this.initialized) {
+        console.log('Initializing Google Chat service for message listing...');
+        await this.initialize();
+      }
+
+      // Validate space ID format
+      if (!this.isValidSpaceId(spaceId)) {
+        console.error(`Invalid space ID format: ${spaceId}. Must start with 'spaces/'`);
+        return [];
+      }
+
+      console.log(`Fetching messages from space: ${spaceId} (pageSize: ${pageSize})`);
+
+      const response = await this.chat.spaces.messages.list({
+        parent: spaceId,
+        pageSize: pageSize,
+        orderBy: 'createTime desc' // Get newest messages first
+      });
+
+      const messages = response.data.messages || [];
+      console.log(`Retrieved ${messages.length} messages from ${spaceId}`);
+
+      return messages;
+
+    } catch (error) {
+      console.error('❌ Failed to list messages from Google Chat space');
+      console.error('Space ID:', spaceId);
+      console.error('Error message:', error.message);
+
+      // Log the full error for debugging
+      if (error.response) {
+        console.error('API Response Status:', error.response.status);
+        console.error('API Response Data:', JSON.stringify(error.response.data, null, 2));
+
+        if (error.response.status === 403) {
+          console.error('⚠️  Permission denied. Make sure the service account can read messages from the space.');
+        } else if (error.response.status === 404) {
+          console.error('⚠️  Space not found. Check if the space ID is correct.');
+        }
+      }
+
+      // Return empty array instead of throwing - graceful degradation
+      return [];
+    }
+  }
+
   // Helper method to validate space ID format
   isValidSpaceId(spaceId) {
     return spaceId && spaceId.startsWith('spaces/');
@@ -165,5 +219,8 @@ module.exports = {
   googleChatService,
   sendMessage: (spaceId, message, senderInfo) => {
     return googleChatService.sendMessage(spaceId, message, senderInfo);
+  },
+  listSpaceMessages: (spaceId, pageSize) => {
+    return googleChatService.listSpaceMessages(spaceId, pageSize);
   }
 };
