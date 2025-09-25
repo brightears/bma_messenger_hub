@@ -5,6 +5,10 @@ services:
     repo: https://github.com/brightears/bma_messenger_hub.git
     branch: main
     region: singapore
+    plan: free
+    dockerCommand: ""
+    dockerContext: .
+    dockerfilePath: ./Dockerfile
     healthCheckPath: /health
     envVars:
       - key: NODE_ENV
