@@ -17,40 +17,83 @@ const PORT = process.env.PORT || 10000;
 // Parse JSON bodies
 app.use(express.json());
 
-// Health check endpoint
+// Simple health check endpoint for Docker health checks (no external dependencies)
+app.get('/health-simple', (req, res) => {
+  res.json({
+    status: 'ok',
+    service: 'BMA Messenger Hub',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime()
+  });
+});
+
+// Comprehensive health check endpoint
 app.get('/health', async (req, res) => {
+  const healthChecks = {};
+  let overallStatus = 'ok';
+
+  // Individual health checks with timeouts and error handling
   try {
-    const [aiHealth, translatorHealth, whatsappHealth, lineHealth] = await Promise.all([
+    healthChecks.ai = await Promise.race([
       aiHealthCheck(),
-      translatorHealthCheck(),
-      whatsappHealthCheck(),
-      lineHealthCheck()
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 3000))
     ]);
-
-    const conversationStats = getStats();
-    const pollingStatus = getPollingStatus();
-
-    res.json({
-      status: 'ok',
-      service: 'BMA Messenger Hub',
-      ai: aiHealth,
-      translator: translatorHealth,
-      whatsapp: whatsappHealth,
-      line: lineHealth,
-      conversations: conversationStats,
-      polling: pollingStatus
-    });
   } catch (error) {
-    res.json({
-      status: 'ok',
-      service: 'BMA Messenger Hub',
-      ai: { status: 'error', message: error.message },
-      translator: { status: 'error', message: error.message },
-      whatsapp: { status: 'error', message: error.message },
-      line: { status: 'error', message: error.message },
-      polling: { status: 'error', message: error.message }
-    });
+    healthChecks.ai = { status: 'error', message: error.message };
+    overallStatus = 'degraded';
   }
+
+  try {
+    healthChecks.translator = await Promise.race([
+      translatorHealthCheck(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 3000))
+    ]);
+  } catch (error) {
+    healthChecks.translator = { status: 'error', message: error.message };
+    overallStatus = 'degraded';
+  }
+
+  try {
+    healthChecks.whatsapp = await Promise.race([
+      whatsappHealthCheck(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 3000))
+    ]);
+  } catch (error) {
+    healthChecks.whatsapp = { status: 'error', message: error.message };
+    overallStatus = 'degraded';
+  }
+
+  try {
+    healthChecks.line = await Promise.race([
+      lineHealthCheck(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 3000))
+    ]);
+  } catch (error) {
+    healthChecks.line = { status: 'error', message: error.message };
+    overallStatus = 'degraded';
+  }
+
+  try {
+    healthChecks.conversations = getStats();
+  } catch (error) {
+    healthChecks.conversations = { error: error.message };
+    overallStatus = 'degraded';
+  }
+
+  try {
+    healthChecks.polling = getPollingStatus();
+  } catch (error) {
+    healthChecks.polling = { error: error.message };
+    overallStatus = 'degraded';
+  }
+
+  res.json({
+    status: overallStatus,
+    service: 'BMA Messenger Hub',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    ...healthChecks
+  });
 });
 
 // Root endpoint
@@ -296,18 +339,23 @@ app.post('/polling/stop', (req, res) => {
 
 // Start server only if not being imported (for testing)
 if (require.main === module) {
-  app.listen(PORT, '0.0.0.0', async () => {
+  app.listen(PORT, '0.0.0.0', () => {
     console.log(`BMA Messenger Hub is running on port ${PORT}`);
     console.log(`Health check: http://0.0.0.0:${PORT}/health`);
+    console.log(`Simple health check: http://0.0.0.0:${PORT}/health-simple`);
 
-    // Start Google Chat polling automatically
-    try {
-      console.log('Starting Google Chat polling...');
-      await startPolling();
-      console.log('✅ Google Chat polling started successfully');
-    } catch (error) {
-      console.error('❌ Failed to start Google Chat polling:', error.message);
-    }
+    // Start Google Chat polling automatically (non-blocking)
+    // Use setTimeout to ensure the server is fully started first
+    setTimeout(async () => {
+      try {
+        console.log('Starting Google Chat polling...');
+        await startPolling();
+        console.log('✅ Google Chat polling started successfully');
+      } catch (error) {
+        console.error('❌ Failed to start Google Chat polling:', error.message);
+        console.log('⚠️  Service will continue running without polling');
+      }
+    }, 2000); // Wait 2 seconds after server start
   });
 }
 

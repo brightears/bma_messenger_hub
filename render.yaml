@@ -9,7 +9,7 @@ services:
     dockerCommand: ""
     dockerContext: .
     dockerfilePath: ./Dockerfile
-    healthCheckPath: /health
+    healthCheckPath: /health-simple
     envVars:
       - key: NODE_ENV
         value: production
