@@ -56,21 +56,59 @@ async function routeMessage(messageText) {
 
   console.log('Routing message:', lowerMessage.substring(0, 100) + '...');
 
-  // First, try keyword-based routing (primary method)
+  // Use scoring system - count matches for each department
+  const scores = {
+    technical: 0,
+    sales: 0,
+    design: 0
+  };
+
+  const matchedKeywords = {
+    technical: [],
+    sales: [],
+    design: []
+  };
+
+  // Count keyword matches for each department
   for (const [department, keywords] of Object.entries(KEYWORDS)) {
     for (const keyword of keywords) {
-      // Use partial matching - check if keyword is contained in the message
       if (lowerMessage.includes(keyword.toLowerCase())) {
-        console.log(`Message routed to ${department} based on keyword: "${keyword}"`);
-        return {
-          spaceId: SPACE_IDS[department],
-          department: department,
-          source: 'keyword',
-          keyword: keyword,
-          confidence: 1.0
-        };
+        scores[department]++;
+        matchedKeywords[department].push(keyword);
       }
     }
+  }
+
+  // Find department with highest score
+  let maxScore = 0;
+  let selectedDepartment = null;
+
+  for (const [department, score] of Object.entries(scores)) {
+    if (score > maxScore) {
+      maxScore = score;
+      selectedDepartment = department;
+    }
+  }
+
+  // If we have keyword matches, use the department with most matches
+  if (selectedDepartment && maxScore > 0) {
+    console.log(`Message routed to ${selectedDepartment} based on ${maxScore} keyword match(es): ${matchedKeywords[selectedDepartment].join(', ')}`);
+
+    // Log other departments if they also had matches for debugging
+    for (const [dept, keywords] of Object.entries(matchedKeywords)) {
+      if (dept !== selectedDepartment && keywords.length > 0) {
+        console.log(`  Also matched ${dept} (${keywords.length}): ${keywords.join(', ')}`);
+      }
+    }
+
+    return {
+      spaceId: SPACE_IDS[selectedDepartment],
+      department: selectedDepartment,
+      source: 'keyword',
+      matchedKeywords: matchedKeywords[selectedDepartment],
+      score: maxScore,
+      confidence: 1.0
+    };
   }
 
   // No keywords matched, try AI classification as fallback

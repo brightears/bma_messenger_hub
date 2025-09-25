@@ -76,6 +76,14 @@ app.post('/webhooks/whatsapp', async (req, res) => {
       const translation = await translateMessage(parsedMessage.messageText);
       console.log(`Translation result: ${translation.isTranslated ? 'translated from ' + translation.originalLanguage : 'no translation needed'}`);
 
+      // Debug log for translation
+      if (translation.error) {
+        console.error('Translation error:', translation.error);
+      }
+      if (translation.isTranslated) {
+        console.log('Translated text preview:', translation.translatedText.substring(0, 100));
+      }
+
       // Use original text for routing (keyword matching works in any language)
       const textForRouting = parsedMessage.messageText;
 
@@ -113,6 +121,14 @@ app.post('/webhooks/line', async (req, res) => {
       // Translate message if needed
       const translation = await translateMessage(parsedMessage.messageText);
       console.log(`Translation result: ${translation.isTranslated ? 'translated from ' + translation.originalLanguage : 'no translation needed'}`);
+
+      // Debug log for translation
+      if (translation.error) {
+        console.error('Translation error:', translation.error);
+      }
+      if (translation.isTranslated) {
+        console.log('Translated text preview:', translation.translatedText.substring(0, 100));
+      }
 
       // Use original text for routing (keyword matching works in any language)
       const textForRouting = parsedMessage.messageText;
