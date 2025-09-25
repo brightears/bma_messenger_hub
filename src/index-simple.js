@@ -1,6 +1,12 @@
 const express = require('express');
+const { sendMessage } = require('./services/google-chat-simple');
+const { parseWhatsAppMessage, parseLineMessage, isValidMessage } = require('./services/message-processor');
+
 const app = express();
 const PORT = process.env.PORT || 10000;
+
+// Google Chat space IDs from environment or defaults
+const SALES_SPACE_ID = process.env.GOOGLE_CHAT_SALES_SPACE || 'spaces/AAQAfKFrdxQ';
 
 // Parse JSON bodies
 app.use(express.json());
@@ -39,15 +45,55 @@ app.get('/webhooks/whatsapp', (req, res) => {
 });
 
 // WhatsApp webhook messages
-app.post('/webhooks/whatsapp', (req, res) => {
-  console.log('WhatsApp webhook received:', JSON.stringify(req.body, null, 2));
-  res.sendStatus(200);
+app.post('/webhooks/whatsapp', async (req, res) => {
+  try {
+    console.log('WhatsApp webhook received:', JSON.stringify(req.body, null, 2));
+
+    // Parse the WhatsApp message
+    const parsedMessage = parseWhatsAppMessage(req.body);
+
+    if (parsedMessage && isValidMessage(parsedMessage)) {
+      console.log('Parsed WhatsApp message:', parsedMessage);
+
+      // Forward to Google Chat Sales space
+      await sendMessage(SALES_SPACE_ID, parsedMessage.messageText, parsedMessage);
+      console.log('WhatsApp message forwarded to Google Chat Sales space');
+    } else {
+      console.log('WhatsApp message could not be parsed or is invalid');
+    }
+
+    res.sendStatus(200);
+  } catch (error) {
+    console.error('Error processing WhatsApp webhook:', error);
+    // Don't crash the service - just log and respond
+    res.sendStatus(200);
+  }
 });
 
 // LINE webhook
-app.post('/webhooks/line', (req, res) => {
-  console.log('LINE webhook received:', JSON.stringify(req.body, null, 2));
-  res.sendStatus(200);
+app.post('/webhooks/line', async (req, res) => {
+  try {
+    console.log('LINE webhook received:', JSON.stringify(req.body, null, 2));
+
+    // Parse the LINE message
+    const parsedMessage = parseLineMessage(req.body);
+
+    if (parsedMessage && isValidMessage(parsedMessage)) {
+      console.log('Parsed LINE message:', parsedMessage);
+
+      // Forward to Google Chat Sales space
+      await sendMessage(SALES_SPACE_ID, parsedMessage.messageText, parsedMessage);
+      console.log('LINE message forwarded to Google Chat Sales space');
+    } else {
+      console.log('LINE message could not be parsed or is invalid');
+    }
+
+    res.sendStatus(200);
+  } catch (error) {
+    console.error('Error processing LINE webhook:', error);
+    // Don't crash the service - just log and respond
+    res.sendStatus(200);
+  }
 });
 
 // Start server
