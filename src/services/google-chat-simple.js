@@ -41,17 +41,25 @@ class GoogleChatService {
   async sendMessage(spaceId, message, senderInfo = {}) {
     try {
       if (!this.initialized) {
+        console.log('Initializing Google Chat service...');
         await this.initialize();
       }
 
       const { platform, senderName, phoneNumber, senderId } = senderInfo;
 
-      // Create platform icon
-      const platformIcon = this.getPlatformIcon(platform);
+      console.log(`Attempting to send message to space: ${spaceId}`);
+      console.log(`Platform: ${platform}, Sender: ${senderName || senderId || 'Unknown'}`);
+
+      // Validate space ID format
+      if (!this.isValidSpaceId(spaceId)) {
+        console.error(`Invalid space ID format: ${spaceId}. Must start with 'spaces/'`);
+        return null;
+      }
 
       // Format the message nicely
       const formattedMessage = this.formatMessage(message, senderInfo);
 
+      console.log('Sending message to Google Chat API...');
       const response = await this.chat.spaces.messages.create({
         parent: spaceId,
         requestBody: {
@@ -59,14 +67,28 @@ class GoogleChatService {
         }
       });
 
-      console.log(`Message sent to ${spaceId}:`, formattedMessage);
+      console.log(`✅ Message successfully sent to ${spaceId}`);
+      console.log(`Message ID: ${response.data.name}`);
       return response.data;
     } catch (error) {
-      console.error('Error sending message to Google Chat:', error);
+      console.error('❌ Failed to send message to Google Chat');
+      console.error('Space ID:', spaceId);
+      console.error('Error message:', error.message);
 
       // Log the full error for debugging
       if (error.response) {
-        console.error('Response error:', error.response.status, error.response.data);
+        console.error('API Response Status:', error.response.status);
+        console.error('API Response Data:', JSON.stringify(error.response.data, null, 2));
+
+        if (error.response.status === 403) {
+          console.error('⚠️  Permission denied. Make sure the service account is added to the space.');
+          console.error('Service account:', process.env.GOOGLE_CREDENTIALS_JSON ?
+            JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON).client_email : 'Unknown');
+        } else if (error.response.status === 404) {
+          console.error('⚠️  Space not found. Check if the space ID is correct.');
+        }
+      } else if (error.code) {
+        console.error('Error code:', error.code);
       }
 
       // Don't throw - graceful degradation

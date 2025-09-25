@@ -3,12 +3,18 @@
 
 const aiClassifier = require('./ai-classifier');
 
-// Google Chat space IDs
+// Google Chat space IDs from environment variables
 const SPACE_IDS = {
-  technical: 'spaces/AAQA6WeunF8',
-  design: 'spaces/AAQALSfR5k4',
-  sales: 'spaces/AAQAfKFrdxQ'
+  technical: process.env.GCHAT_TECHNICAL_SPACE || 'spaces/AAQA6WeunF8',
+  design: process.env.GCHAT_DESIGN_SPACE || 'spaces/AAQALSfR5k4',
+  sales: process.env.GCHAT_SALES_SPACE || 'spaces/AAQAfKFrdxQ'
 };
+
+console.log('Message Router initialized with spaces:', {
+  technical: SPACE_IDS.technical,
+  design: SPACE_IDS.design,
+  sales: SPACE_IDS.sales
+});
 
 // Department keywords for routing
 const KEYWORDS = {
