@@ -1,12 +1,12 @@
 const express = require('express');
 const { sendMessage } = require('./services/google-chat-simple');
 const { parseWhatsAppMessage, parseLineMessage, isValidMessage } = require('./services/message-processor');
+const { routeMessage } = require('./services/message-router');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-// Google Chat space IDs from environment or defaults
-const SALES_SPACE_ID = process.env.GOOGLE_CHAT_SALES_SPACE || 'spaces/AAQAfKFrdxQ';
+// Note: Space IDs are now managed by the message-router service
 
 // Parse JSON bodies
 app.use(express.json());
@@ -55,9 +55,13 @@ app.post('/webhooks/whatsapp', async (req, res) => {
     if (parsedMessage && isValidMessage(parsedMessage)) {
       console.log('Parsed WhatsApp message:', parsedMessage);
 
-      // Forward to Google Chat Sales space
-      await sendMessage(SALES_SPACE_ID, parsedMessage.messageText, parsedMessage);
-      console.log('WhatsApp message forwarded to Google Chat Sales space');
+      // Route message to appropriate department
+      const routing = routeMessage(parsedMessage.messageText);
+      console.log(`Routing WhatsApp message to ${routing.department} department`);
+
+      // Forward to appropriate Google Chat space
+      await sendMessage(routing.spaceId, parsedMessage.messageText, parsedMessage);
+      console.log(`WhatsApp message forwarded to Google Chat ${routing.department} space (${routing.spaceId})`);
     } else {
       console.log('WhatsApp message could not be parsed or is invalid');
     }
@@ -81,9 +85,13 @@ app.post('/webhooks/line', async (req, res) => {
     if (parsedMessage && isValidMessage(parsedMessage)) {
       console.log('Parsed LINE message:', parsedMessage);
 
-      // Forward to Google Chat Sales space
-      await sendMessage(SALES_SPACE_ID, parsedMessage.messageText, parsedMessage);
-      console.log('LINE message forwarded to Google Chat Sales space');
+      // Route message to appropriate department
+      const routing = routeMessage(parsedMessage.messageText);
+      console.log(`Routing LINE message to ${routing.department} department`);
+
+      // Forward to appropriate Google Chat space
+      await sendMessage(routing.spaceId, parsedMessage.messageText, parsedMessage);
+      console.log(`LINE message forwarded to Google Chat ${routing.department} space (${routing.spaceId})`);
     } else {
       console.log('LINE message could not be parsed or is invalid');
     }
