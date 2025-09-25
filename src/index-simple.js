@@ -2,6 +2,7 @@ const express = require('express');
 const { sendMessage } = require('./services/google-chat-simple');
 const { parseWhatsAppMessage, parseLineMessage, isValidMessage } = require('./services/message-processor');
 const { routeMessage, aiHealthCheck } = require('./services/message-router');
+const { translateMessage, healthCheck: translatorHealthCheck } = require('./services/translator');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -15,16 +16,19 @@ app.use(express.json());
 app.get('/health', async (req, res) => {
   try {
     const aiHealth = await aiHealthCheck();
+    const translatorHealth = await translatorHealthCheck();
     res.json({
       status: 'ok',
       service: 'BMA Messenger Hub',
-      ai: aiHealth
+      ai: aiHealth,
+      translator: translatorHealth
     });
   } catch (error) {
     res.json({
       status: 'ok',
       service: 'BMA Messenger Hub',
-      ai: { status: 'error', message: error.message }
+      ai: { status: 'error', message: error.message },
+      translator: { status: 'error', message: error.message }
     });
   }
 });
@@ -68,12 +72,20 @@ app.post('/webhooks/whatsapp', async (req, res) => {
     if (parsedMessage && isValidMessage(parsedMessage)) {
       console.log('Parsed WhatsApp message:', parsedMessage);
 
+      // Translate message if needed
+      const translation = await translateMessage(parsedMessage.messageText);
+      console.log(`Translation result: ${translation.isTranslated ? 'translated from ' + translation.originalLanguage : 'no translation needed'}`);
+
+      // Use original text for routing (keyword matching works in any language)
+      const textForRouting = parsedMessage.messageText;
+
       // Route message to appropriate department
-      const routing = await routeMessage(parsedMessage.messageText);
+      const routing = await routeMessage(textForRouting);
       console.log(`Routing WhatsApp message to ${routing.department} department (source: ${routing.source})`);
 
-      // Forward to appropriate Google Chat space
-      await sendMessage(routing.spaceId, parsedMessage.messageText, parsedMessage);
+      // Send the translated text (or original if no translation) to Google Chat
+      const messageToSend = translation.isTranslated ? translation.translatedText : parsedMessage.messageText;
+      await sendMessage(routing.spaceId, messageToSend, parsedMessage);
       console.log(`WhatsApp message forwarded to Google Chat ${routing.department} space (${routing.spaceId})`);
     } else {
       console.log('WhatsApp message could not be parsed or is invalid');
@@ -98,12 +110,20 @@ app.post('/webhooks/line', async (req, res) => {
     if (parsedMessage && isValidMessage(parsedMessage)) {
       console.log('Parsed LINE message:', parsedMessage);
 
+      // Translate message if needed
+      const translation = await translateMessage(parsedMessage.messageText);
+      console.log(`Translation result: ${translation.isTranslated ? 'translated from ' + translation.originalLanguage : 'no translation needed'}`);
+
+      // Use original text for routing (keyword matching works in any language)
+      const textForRouting = parsedMessage.messageText;
+
       // Route message to appropriate department
-      const routing = await routeMessage(parsedMessage.messageText);
+      const routing = await routeMessage(textForRouting);
       console.log(`Routing LINE message to ${routing.department} department (source: ${routing.source})`);
 
-      // Forward to appropriate Google Chat space
-      await sendMessage(routing.spaceId, parsedMessage.messageText, parsedMessage);
+      // Send the translated text (or original if no translation) to Google Chat
+      const messageToSend = translation.isTranslated ? translation.translatedText : parsedMessage.messageText;
+      await sendMessage(routing.spaceId, messageToSend, parsedMessage);
       console.log(`LINE message forwarded to Google Chat ${routing.department} space (${routing.spaceId})`);
     } else {
       console.log('LINE message could not be parsed or is invalid');
