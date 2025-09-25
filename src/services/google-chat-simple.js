@@ -147,7 +147,7 @@ class GoogleChatService {
     formattedMessage += `\n*Message:*\n${message}`;
 
     // Add reply instructions
-    formattedMessage += `\n\n---\n*💬 To reply:* Simply reply to this message or use: \`/reply [your message]\``;
+    formattedMessage += `\n\n---\n💬 *To reply:* Just reply to this message in the thread`;
 
     return formattedMessage;
   }

@@ -61,29 +61,8 @@ function parseReplyMessage(messageText) {
 
   const text = messageText.trim();
 
-  // Check for /reply command
-  const replyCommandMatch = text.match(/^\/reply\s+(.+)$/is);
-  if (replyCommandMatch) {
-    return {
-      isReply: true,
-      replyText: replyCommandMatch[1].trim(),
-      method: 'command'
-    };
-  }
-
-  // Check for @bot mentions with reply intent
-  // This handles cases where users mention the bot and want to reply
-  const botMentionMatch = text.match(/@\w+\s+(.+)$/is);
-  if (botMentionMatch) {
-    return {
-      isReply: true,
-      replyText: botMentionMatch[1].trim(),
-      method: 'mention'
-    };
-  }
-
-  // If it's a thread reply without specific command, treat as reply
-  // This is the most natural way - just reply in the thread
+  // For natural thread replies, just return the text as-is
+  // No need for special commands - any message in a tracked thread is a reply
   return {
     isReply: true,
     replyText: text,
@@ -160,7 +139,12 @@ async function routeReplyMessage(conversation, replyText) {
  */
 async function processGoogleChatWebhook(req, res) {
   try {
-    console.log('Google Chat webhook received:', JSON.stringify(req.body, null, 2));
+    console.log('===========================================');
+    console.log('GOOGLE CHAT WEBHOOK RECEIVED!');
+    console.log('Time:', new Date().toISOString());
+    console.log('Headers:', JSON.stringify(req.headers, null, 2));
+    console.log('Body:', JSON.stringify(req.body, null, 2));
+    console.log('===========================================');
 
     // Parse the Google Chat message
     const parsedMessage = parseGoogleChatMessage(req.body);
