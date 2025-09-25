@@ -1,9 +1,9 @@
 module.exports = {
-  preset: 'ts-jest',
   testEnvironment: 'node',
-  roots: ['<rootDir>/tests'],
-  testMatch: ['**/*.test.ts'],
+  roots: ['<rootDir>/test', '<rootDir>/tests'],
+  testMatch: ['**/*.test.js', '**/*.test.ts'],
   collectCoverageFrom: [
+    'src/**/*.js',
     'src/**/*.ts',
     '!src/**/*.d.ts',
     '!src/types/**',
@@ -15,5 +15,14 @@ module.exports = {
   testTimeout: 10000,
   verbose: true,
   clearMocks: true,
-  restoreMocks: true
+  restoreMocks: true,
+  // Handle both TypeScript and JavaScript files
+  transform: {
+    '^.+\\.ts$': 'ts-jest',
+    '^.+\\.js$': 'babel-jest'
+  },
+  // Module file extensions
+  moduleFileExtensions: ['ts', 'js', 'json'],
+  // Handle CommonJS modules
+  extensionsToTreatAsEsm: []
 };

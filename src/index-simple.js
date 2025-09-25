@@ -137,8 +137,13 @@ app.post('/webhooks/line', async (req, res) => {
   }
 });
 
-// Start server
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`BMA Messenger Hub is running on port ${PORT}`);
-  console.log(`Health check: http://0.0.0.0:${PORT}/health`);
-});
+// Start server only if not being imported (for testing)
+if (require.main === module) {
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`BMA Messenger Hub is running on port ${PORT}`);
+    console.log(`Health check: http://0.0.0.0:${PORT}/health`);
+  });
+}
+
+// Export app for testing
+module.exports = app;
