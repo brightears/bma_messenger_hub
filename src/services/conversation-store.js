@@ -37,10 +37,11 @@ class ConversationStore {
    * @param {string} gchatThreadId - Google Chat thread ID
    * @param {string} spaceId - Google Chat space ID
    * @param {Object} senderInfo - Additional sender information
+   * @param {string} predefinedId - Optional predefined conversation ID
    * @returns {string} Conversation ID
    */
-  storeConversation(platform, userId, gchatThreadId, spaceId, senderInfo = {}) {
-    const conversationId = this.generateConversationId();
+  storeConversation(platform, userId, gchatThreadId, spaceId, senderInfo = {}, predefinedId = null) {
+    const conversationId = predefinedId || this.generateConversationId();
     const platformUserKey = this.createPlatformUserKey(platform, userId);
     const now = Date.now();
 
@@ -257,8 +258,8 @@ setInterval(() => {
 
 module.exports = {
   conversationStore,
-  storeConversation: (platform, userId, gchatThreadId, spaceId, senderInfo) =>
-    conversationStore.storeConversation(platform, userId, gchatThreadId, spaceId, senderInfo),
+  storeConversation: (platform, userId, gchatThreadId, spaceId, senderInfo, predefinedId) =>
+    conversationStore.storeConversation(platform, userId, gchatThreadId, spaceId, senderInfo, predefinedId),
   getConversation: (conversationId) => conversationStore.getConversation(conversationId),
   getConversationByUser: (platform, userId) => conversationStore.getConversationByUser(platform, userId),
   getConversationByThread: (gchatThreadId) => conversationStore.getConversationByThread(gchatThreadId),

@@ -62,7 +62,18 @@ class GoogleChatService {
       }
 
       // Format the message nicely
-      const formattedMessage = this.formatMessage(message, senderInfo);
+      // Generate conversation ID first if we have sender info
+      let conversationId = null;
+      let threadId = null;
+
+      if (senderInfo.platform && senderInfo.senderId) {
+        // Generate conversation ID before sending message
+        const tempId = `conv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        conversationId = tempId;
+      }
+
+      // Format message with reply link
+      const formattedMessage = this.formatMessage(message, senderInfo, conversationId);
 
       console.log('Sending message to Google Chat API...');
       const response = await this.chat.spaces.messages.create({
@@ -77,26 +88,28 @@ class GoogleChatService {
       console.log(`Thread info:`, JSON.stringify(response.data.thread, null, 2));
 
       // Store conversation mapping for bidirectional messaging
-      if (senderInfo.platform && senderInfo.senderId) {
+      if (senderInfo.platform && senderInfo.senderId && conversationId) {
         // IMPORTANT: Use thread.name if available (message is in a thread)
         // Otherwise create a new thread ID from the message name
         // Google Chat creates a thread automatically for the first message
-        const threadId = response.data.thread?.name || response.data.name;
+        threadId = response.data.thread?.name || response.data.name;
 
         console.log(`🔗 Storing conversation mapping:`);
         console.log(`   Platform: ${senderInfo.platform}`);
         console.log(`   User ID: ${senderInfo.senderId}`);
         console.log(`   Thread ID: ${threadId}`);
         console.log(`   Space ID: ${spaceId}`);
+        console.log(`   Conversation ID: ${conversationId}`);
 
-        const conversationId = storeConversation(
+        // Actually store the conversation with the predetermined ID
+        storeConversation(
           senderInfo.platform,
           senderInfo.senderId,
           threadId,
           spaceId,
-          senderInfo
+          senderInfo,
+          conversationId  // Pass the pre-generated ID
         );
-        console.log(`   Conversation ID: ${conversationId}`);
       }
 
       return response.data;
@@ -135,7 +148,7 @@ class GoogleChatService {
     return icons[platform?.toLowerCase()] || icons.default;
   }
 
-  formatMessage(message, senderInfo) {
+  formatMessage(message, senderInfo, conversationId = null) {
     const { platform, senderName, phoneNumber, senderId, timestamp } = senderInfo;
 
     const platformIcon = this.getPlatformIcon(platform);
@@ -161,8 +174,15 @@ class GoogleChatService {
 
     formattedMessage += `\n*Message:*\n${message}`;
 
-    // Add reply instructions
-    formattedMessage += `\n\n---\n💬 *To reply:* Just reply to this message in the thread`;
+    // Add reply instructions with portal link if conversation ID is provided
+    if (conversationId) {
+      const replyUrl = `https://bma-messenger-hub-ooyy.onrender.com/reply/${conversationId}`;
+      formattedMessage += `\n\n---\n`;
+      formattedMessage += `💬 *To reply:* <${replyUrl}|Click here to reply>`;
+      formattedMessage += `\n📝 *Quick link:* ${replyUrl}`;
+    } else {
+      formattedMessage += `\n\n---\n💬 *To reply:* Processing reply link...`;
+    }
 
     return formattedMessage;
   }
