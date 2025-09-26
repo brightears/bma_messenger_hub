@@ -72,13 +72,15 @@ class GoogleChatService {
         conversationId = tempId;
       }
 
-      // Create card message for better UI
-      const messageCard = this.createMessageCard(message, senderInfo, conversationId);
+      // Format message with reply link
+      const formattedMessage = this.formatMessage(message, senderInfo, conversationId);
 
       console.log('Sending message to Google Chat API...');
       const response = await this.chat.spaces.messages.create({
         parent: spaceId,
-        requestBody: messageCard
+        requestBody: {
+          text: formattedMessage
+        }
       });
 
       console.log(`✅ Message successfully sent to ${spaceId}`);
@@ -176,9 +178,9 @@ class GoogleChatService {
     if (conversationId) {
       const replyUrl = `https://bma-messenger-hub-ooyy.onrender.com/reply/${conversationId}`;
       formattedMessage += `\n\n---\n`;
-      formattedMessage += `💬 *To reply:* ${replyUrl}`;
+      formattedMessage += `↩️ *Reply to customer:* <${replyUrl}|Click here>`;
     } else {
-      formattedMessage += `\n\n---\n💬 *To reply:* Processing reply link...`;
+      formattedMessage += `\n\n---\n↩️ *Reply:* Processing link...`;
     }
 
     return formattedMessage;
@@ -255,99 +257,6 @@ class GoogleChatService {
   // Helper method to validate space ID format
   isValidSpaceId(spaceId) {
     return spaceId && spaceId.startsWith('spaces/');
-  }
-
-  /**
-   * Create a card message for better UI in Google Chat
-   */
-  createMessageCard(message, senderInfo = {}, conversationId = null) {
-    const { platform, senderName, phoneNumber, senderId, timestamp } = senderInfo;
-
-    // Platform icon and name
-    const platformIcon = this.getPlatformIcon(platform);
-    const platformName = platform ? platform.toUpperCase() : 'MESSAGE';
-
-    // Format time in Thailand timezone
-    let timeStr = '';
-    if (timestamp) {
-      timeStr = new Date(timestamp * 1000).toLocaleString('en-US', {
-        timeZone: 'Asia/Bangkok',
-        hour: 'numeric',
-        minute: '2-digit',
-        hour12: true,
-        month: 'short',
-        day: 'numeric'
-      });
-    } else {
-      timeStr = new Date().toLocaleString('en-US', {
-        timeZone: 'Asia/Bangkok',
-        hour: 'numeric',
-        minute: '2-digit',
-        hour12: true,
-        month: 'short',
-        day: 'numeric'
-      });
-    }
-
-    // Create card sections
-    const sections = [];
-
-    // Header section with platform and sender info
-    let headerText = `<b>${platformIcon} ${platformName} MESSAGE</b>`;
-    if (senderName || phoneNumber || senderId) {
-      headerText += `\n<b>From:</b> ${senderName || 'Unknown'}`;
-      if (phoneNumber) {
-        headerText += `\n<b>Phone:</b> ${phoneNumber}`;
-      } else if (senderId) {
-        headerText += `\n<b>User ID:</b> ${senderId}`;
-      }
-      headerText += `\n<b>Time:</b> ${timeStr}`;
-    }
-
-    sections.push({
-      widgets: [{
-        textParagraph: {
-          text: headerText
-        }
-      }]
-    });
-
-    // Message content section
-    sections.push({
-      widgets: [{
-        textParagraph: {
-          text: `<b>Message:</b>\n${message}`
-        }
-      }]
-    });
-
-    // Reply button section
-    if (conversationId) {
-      const replyUrl = `https://bma-messenger-hub-ooyy.onrender.com/reply/${conversationId}`;
-      sections.push({
-        widgets: [{
-          buttons: [{
-            textButton: {
-              text: '↩️  Reply to Customer',
-              onClick: {
-                openLink: {
-                  url: replyUrl
-                }
-              }
-            }
-          }]
-        }]
-      });
-    }
-
-    return {
-      cardsV2: [{
-        cardId: 'message-card',
-        card: {
-          sections: sections
-        }
-      }]
-    };
   }
 }
 
