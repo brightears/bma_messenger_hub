@@ -659,7 +659,7 @@ app.get('/reply/:conversationId', (req, res) => {
               </div>
             ` : ''}
             <div class="info-row">
-              <span class="info-label">Time:</span> ${new Date(conversation.createdAt).toLocaleString()}
+              <span class="info-label">Time:</span> ${new Date(conversation.createdAt).toLocaleString('en-US', { timeZone: 'Asia/Bangkok' })}
             </div>
           </div>
 

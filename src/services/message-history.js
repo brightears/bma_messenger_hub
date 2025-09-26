@@ -156,7 +156,8 @@ class MessageHistory {
       timestamp: new Date(msg.timestamp).toLocaleTimeString('en-US', {
         hour: 'numeric',
         minute: '2-digit',
-        hour12: true
+        hour12: true,
+        timeZone: 'Asia/Bangkok'
       }),
       senderName: msg.direction === 'incoming'
         ? (msg.metadata.senderName || 'Customer')
