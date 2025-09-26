@@ -8,6 +8,7 @@ const { healthCheck: whatsappHealthCheck, sendWhatsAppMessage } = require('./ser
 const { healthCheck: lineHealthCheck, sendLineMessage } = require('./services/line-sender');
 const { getStats, getConversation } = require('./services/conversation-store');
 const { startPolling, stopPolling, getStatus: getPollingStatus, getStats: getPollingStats } = require('./services/google-chat-poller');
+const { storeMessage, getHistory, formatForDisplay } = require('./services/message-history');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -141,6 +142,21 @@ app.post('/webhooks/whatsapp', async (req, res) => {
     if (parsedMessage && isValidMessage(parsedMessage)) {
       console.log('Parsed WhatsApp message:', parsedMessage);
 
+      // Store incoming message in history
+      const phoneNumber = parsedMessage.phoneNumber || parsedMessage.senderId;
+      if (phoneNumber) {
+        storeMessage(
+          phoneNumber,
+          parsedMessage.messageText,
+          'incoming',
+          'whatsapp',
+          {
+            senderName: parsedMessage.senderName,
+            messageId: parsedMessage.messageId
+          }
+        );
+      }
+
       // Translate message if needed
       const translation = await translateMessage(parsedMessage.messageText);
       console.log(`Translation result: ${translation.isTranslated ? 'translated from ' + translation.originalLanguage : 'no translation needed'}`);
@@ -191,6 +207,21 @@ app.post('/webhooks/line', async (req, res) => {
 
     if (parsedMessage && isValidMessage(parsedMessage)) {
       console.log('Parsed LINE message:', parsedMessage);
+
+      // Store incoming message in history
+      const userId = parsedMessage.senderId;
+      if (userId) {
+        storeMessage(
+          userId,
+          parsedMessage.messageText,
+          'incoming',
+          'line',
+          {
+            senderName: parsedMessage.senderName,
+            messageId: parsedMessage.messageId
+          }
+        );
+      }
 
       // Translate message if needed
       const translation = await translateMessage(parsedMessage.messageText);
@@ -379,6 +410,13 @@ app.get('/reply/:conversationId', (req, res) => {
   const platformIcon = conversation.platform === 'whatsapp' ? '💬' : '📱';
   const platformName = conversation.platform.toUpperCase();
 
+  // Get 24-hour message history
+  const identifier = conversation.platform === 'whatsapp'
+    ? (conversation.senderInfo.phoneNumber || conversation.userId)
+    : conversation.userId;
+  const messageHistory = getHistory(identifier);
+  const formattedHistory = formatForDisplay(messageHistory);
+
   res.send(`
     <!DOCTYPE html>
     <html>
@@ -426,13 +464,43 @@ app.get('/reply/:conversationId', (req, res) => {
           font-weight: 600;
           color: #212529;
         }
-        .original-message {
-          background: #e3f2fd;
-          padding: 15px;
-          border-radius: 8px;
+        .message-history {
+          max-height: 400px;
+          overflow-y: auto;
           margin-bottom: 20px;
-          white-space: pre-wrap;
+          padding: 10px;
+          background: #f8f9fa;
+          border-radius: 8px;
+          border: 1px solid #e0e0e0;
+        }
+        .message {
+          margin: 10px 0;
+          padding: 10px 15px;
+          border-radius: 12px;
+          max-width: 70%;
           word-wrap: break-word;
+        }
+        .message-incoming {
+          background: #e3f2fd;
+          margin-right: auto;
+          border-bottom-left-radius: 4px;
+        }
+        .message-outgoing {
+          background: #f5f5f5;
+          margin-left: auto;
+          text-align: right;
+          border-bottom-right-radius: 4px;
+        }
+        .message-time {
+          font-size: 11px;
+          color: #666;
+          margin-top: 4px;
+        }
+        .message-sender {
+          font-weight: 600;
+          font-size: 12px;
+          color: #555;
+          margin-bottom: 4px;
         }
         textarea {
           width: 100%;
@@ -534,8 +602,22 @@ app.get('/reply/:conversationId', (req, res) => {
           </div>
 
           <div>
-            <h3>📨 Original Message:</h3>
-            <div class="original-message">${conversation.senderInfo.messageText || 'No message text available'}</div>
+            <h3>📨 24-Hour Message History:</h3>
+            <div class="message-history" id="messageHistory">
+              ${formattedHistory.length > 0 ? formattedHistory.map(msg => `
+                <div class="message message-${msg.direction}" style="${msg.direction === 'outgoing' ? 'display: flex; flex-direction: column; align-items: flex-end;' : ''}">
+                  <div class="message-sender">${msg.senderName}</div>
+                  <div>${msg.text}</div>
+                  <div class="message-time">${msg.timestamp}</div>
+                </div>
+              `).join('') : `
+                <div class="message message-incoming">
+                  <div class="message-sender">${conversation.senderInfo.senderName || 'Customer'}</div>
+                  <div>${conversation.senderInfo.messageText || 'No message text available'}</div>
+                  <div class="message-time">Just now</div>
+                </div>
+              `}
+            </div>
           </div>
 
           <form id="replyForm" action="/reply/${conversationId}" method="POST">
@@ -549,6 +631,26 @@ app.get('/reply/:conversationId', (req, res) => {
             ></textarea>
             <div class="char-count"><span id="charCount">0</span> / 4096</div>
 
+            <div class="file-upload-zone" id="fileUploadZone">
+              <input type="file" id="fileInput" class="file-input" multiple />
+              <div>
+                📁 Drag files here or <span style="color: #7c3aed; text-decoration: underline;">click to browse</span>
+              </div>
+              <div style="font-size: 14px; color: #718096; margin-top: 8px;">
+                ${conversation.platform === 'whatsapp'
+                  ? 'Supported: PDF, Word, Excel, Images, Videos (max 100MB)'
+                  : 'LINE only supports: Images (JPG, PNG) and Videos (MP4)'}
+              </div>
+            </div>
+
+            <div id="fileList" class="file-list"></div>
+
+            ${conversation.platform === 'line' ? `
+              <div class="platform-warning" id="lineWarning" style="display: none;">
+                ⚠️ LINE doesn't support document files. Only images and videos will be sent.
+              </div>
+            ` : ''}
+
             <div class="button-group">
               <button type="button" class="cancel-btn" onclick="window.close()">❌ Cancel</button>
               <button type="submit" class="send-btn" id="sendBtn">📤 Send Reply</button>
@@ -556,7 +658,8 @@ app.get('/reply/:conversationId', (req, res) => {
           </form>
 
           <div class="success-message" id="successMessage">
-            ✅ Reply sent successfully! You can close this window.
+            ✅ Reply sent successfully!<br>
+            <span style="font-weight: normal; font-size: 14px;">You can now close this window.</span>
           </div>
           <div class="error-message" id="errorMessage"></div>
         </div>
@@ -597,7 +700,8 @@ app.get('/reply/:conversationId', (req, res) => {
             if (result.success) {
               successMessage.style.display = 'block';
               form.style.display = 'none';
-              setTimeout(() => window.close(), 3000);
+              // Don't try to close window - it doesn't work for user-opened tabs
+              // User will close it manually
             } else {
               throw new Error(result.error || 'Failed to send reply');
             }
@@ -611,6 +715,12 @@ app.get('/reply/:conversationId', (req, res) => {
 
         // Auto-focus textarea
         textarea.focus();
+
+        // Scroll message history to bottom
+        const messageHistory = document.getElementById('messageHistory');
+        if (messageHistory) {
+          messageHistory.scrollTop = messageHistory.scrollHeight;
+        }
       </script>
     </body>
     </html>
@@ -641,6 +751,10 @@ app.post('/reply/:conversationId', async (req, res) => {
 
     // Send reply based on platform
     let result;
+    const identifier = conversation.platform === 'whatsapp'
+      ? (conversation.senderInfo.phoneNumber || conversation.userId)
+      : conversation.userId;
+
     if (conversation.platform === 'whatsapp') {
       const phoneNumber = conversation.senderInfo.phoneNumber || conversation.userId;
       result = await sendWhatsAppMessage(phoneNumber, replyText);
@@ -654,6 +768,18 @@ app.post('/reply/:conversationId', async (req, res) => {
     }
 
     if (result.success) {
+      // Store outgoing message in history
+      storeMessage(
+        identifier,
+        replyText,
+        'outgoing',
+        conversation.platform,
+        {
+          agentName: 'Support Agent',
+          messageId: result.messageId
+        }
+      );
+
       console.log(`✅ Reply sent via portal to ${conversation.platform} user ${conversation.userId}`);
       res.json({
         success: true,

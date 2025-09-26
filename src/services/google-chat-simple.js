@@ -178,8 +178,7 @@ class GoogleChatService {
     if (conversationId) {
       const replyUrl = `https://bma-messenger-hub-ooyy.onrender.com/reply/${conversationId}`;
       formattedMessage += `\n\n---\n`;
-      formattedMessage += `💬 *To reply:* <${replyUrl}|Click here to reply>`;
-      formattedMessage += `\n📝 *Quick link:* ${replyUrl}`;
+      formattedMessage += `💬 *To reply:* ${replyUrl}`;
     } else {
       formattedMessage += `\n\n---\n💬 *To reply:* Processing reply link...`;
     }
