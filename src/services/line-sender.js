@@ -219,6 +219,91 @@ class LineSender {
   }
 
   /**
+   * Send a media message (image or video) to a LINE user
+   * @param {string} userId - Recipient LINE user ID
+   * @param {Object} file - File object with url, mimeType, originalName
+   * @returns {Promise<Object>} API response
+   */
+  async sendMediaMessage(userId, file) {
+    try {
+      if (!this.initialized) {
+        this.initialize();
+      }
+
+      console.log(`Sending LINE media to ${userId}:`);
+      console.log(`File: ${file.originalName} (${file.mimeType})`);
+
+      const url = `${this.apiUrl}/bot/message/push`;
+
+      // Determine media type - LINE only supports image and video
+      let messageType;
+      if (file.mimeType.startsWith('image/')) {
+        messageType = 'image';
+      } else if (file.mimeType.startsWith('video/')) {
+        messageType = 'video';
+      } else {
+        console.error(`❌ LINE doesn't support ${file.mimeType} files`);
+        return {
+          success: false,
+          error: `LINE doesn't support ${file.mimeType} files. Only images and videos are supported.`,
+          userId: userId
+        };
+      }
+
+      const payload = {
+        to: userId,
+        messages: [
+          {
+            type: messageType,
+            originalContentUrl: file.url,
+            previewImageUrl: file.url // For images, preview and original can be same
+          }
+        ]
+      };
+
+      // For videos, we need a preview image URL (using video URL as fallback)
+      if (messageType === 'video') {
+        payload.messages[0].previewImageUrl = file.url; // In production, generate a thumbnail
+      }
+
+      const response = await axios.post(url, payload, {
+        headers: {
+          'Authorization': `Bearer ${this.channelAccessToken}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: 15000 // 15 second timeout for media
+      });
+
+      console.log(`✅ LINE media sent successfully to ${userId}`);
+
+      return {
+        success: true,
+        userId: userId,
+        mediaType: messageType,
+        response: response.data,
+        statusCode: response.status
+      };
+
+    } catch (error) {
+      console.error('❌ Failed to send LINE media');
+      console.error('User ID:', userId);
+      console.error('File:', file.originalName);
+      console.error('Error message:', error.message);
+
+      if (error.response) {
+        console.error('API Response Status:', error.response.status);
+        console.error('API Response Data:', JSON.stringify(error.response.data, null, 2));
+      }
+
+      return {
+        success: false,
+        error: error.message,
+        userId: userId
+      };
+    }
+  }
+
+  /**
    * Validate LINE user ID format
    * @param {string} userId - LINE user ID to validate
    * @returns {boolean} Whether user ID is valid
@@ -300,6 +385,7 @@ const lineSender = new LineSender();
 module.exports = {
   lineSender,
   sendLineMessage: (userId, message) => lineSender.sendLineMessage(userId, message),
+  sendMediaMessage: (userId, file) => lineSender.sendMediaMessage(userId, file),
   sendWithRetry: (userId, message, maxRetries) => lineSender.sendWithRetry(userId, message, maxRetries),
   sendRichMessage: (userId, message, quickReplies) => lineSender.sendRichMessage(userId, message, quickReplies),
   isValidUserId: (userId) => lineSender.isValidUserId(userId),

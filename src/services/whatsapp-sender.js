@@ -171,6 +171,92 @@ class WhatsAppSender {
   }
 
   /**
+   * Send a media message (document, image, video) to a WhatsApp user
+   * @param {string} phoneNumber - Recipient phone number
+   * @param {Object} file - File object with url, mimeType, originalName
+   * @returns {Promise<Object>} API response
+   */
+  async sendMediaMessage(phoneNumber, file) {
+    try {
+      if (!this.initialized) {
+        this.initialize();
+      }
+
+      // Ensure phone number is in correct format
+      const cleanPhoneNumber = phoneNumber.replace(/\+|\s/g, '');
+
+      console.log(`Sending WhatsApp media to ${cleanPhoneNumber}:`);
+      console.log(`File: ${file.originalName} (${file.mimeType})`);
+
+      const url = `${this.apiUrl}/${this.phoneNumberId}/messages`;
+
+      // Determine media type based on MIME type
+      let mediaType;
+      if (file.mimeType.startsWith('image/')) {
+        mediaType = 'image';
+      } else if (file.mimeType.startsWith('video/')) {
+        mediaType = 'video';
+      } else if (file.mimeType.startsWith('audio/')) {
+        mediaType = 'audio';
+      } else {
+        mediaType = 'document';
+      }
+
+      const payload = {
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to: cleanPhoneNumber,
+        type: mediaType,
+        [mediaType]: {
+          link: file.url
+        }
+      };
+
+      // Add caption/filename for documents
+      if (mediaType === 'document') {
+        payload[mediaType].filename = file.originalName;
+        payload[mediaType].caption = file.originalName;
+      }
+
+      const response = await axios.post(url, payload, {
+        headers: {
+          'Authorization': `Bearer ${this.accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: 15000 // 15 second timeout for media
+      });
+
+      console.log(`✅ WhatsApp media sent successfully to ${cleanPhoneNumber}`);
+      console.log(`Message ID: ${response.data.messages[0].id}`);
+
+      return {
+        success: true,
+        messageId: response.data.messages[0].id,
+        phoneNumber: cleanPhoneNumber,
+        mediaType: mediaType,
+        response: response.data
+      };
+
+    } catch (error) {
+      console.error('❌ Failed to send WhatsApp media');
+      console.error('Phone number:', phoneNumber);
+      console.error('File:', file.originalName);
+      console.error('Error message:', error.message);
+
+      if (error.response) {
+        console.error('API Response Status:', error.response.status);
+        console.error('API Response Data:', JSON.stringify(error.response.data, null, 2));
+      }
+
+      return {
+        success: false,
+        error: error.message,
+        phoneNumber: phoneNumber
+      };
+    }
+  }
+
+  /**
    * Health check for WhatsApp sender service
    * @returns {Object} Service health status
    */

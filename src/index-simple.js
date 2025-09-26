@@ -1,4 +1,7 @@
 const express = require('express');
+const multer = require('multer');
+const crypto = require('crypto');
+const axios = require('axios');
 const { sendMessage } = require('./services/google-chat-simple');
 const { parseWhatsAppMessage, parseLineMessage, isValidMessage } = require('./services/message-processor');
 // Removed message router - using single space now
@@ -7,8 +10,9 @@ const { translateMessage, healthCheck: translatorHealthCheck } = require('./serv
 // Single Google Chat space for all messages
 const SINGLE_SPACE_ID = process.env.GCHAT_SPACE_ID || 'spaces/AAQAfKFrdxQ'; // BMA Chat Support
 const { processGoogleChatWebhook } = require('./webhooks/google-chat');
-const { healthCheck: whatsappHealthCheck, sendWhatsAppMessage } = require('./services/whatsapp-sender');
-const { healthCheck: lineHealthCheck, sendLineMessage } = require('./services/line-sender');
+const { healthCheck: whatsappHealthCheck, sendWhatsAppMessage, sendMediaMessage: sendWhatsAppMedia } = require('./services/whatsapp-sender');
+const { healthCheck: lineHealthCheck, sendLineMessage, sendMediaMessage: sendLineMedia } = require('./services/line-sender');
+const { saveFile, getFileUrl, readFile } = require('./services/file-handler');
 const { getStats, getConversation } = require('./services/conversation-store');
 const { startPolling, stopPolling, getStatus: getPollingStatus, getStats: getPollingStats } = require('./services/google-chat-poller');
 const { storeMessage, getHistory, formatForDisplay } = require('./services/message-history');
@@ -20,6 +24,35 @@ const PORT = process.env.PORT || 10000;
 
 // Parse JSON bodies
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// Configure multer for file uploads
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB max file size
+    files: 5 // Max 5 files per upload
+  },
+  fileFilter: (req, file, cb) => {
+    // Allowed file types
+    const allowedTypes = [
+      'image/jpeg', 'image/png', 'image/gif',
+      'video/mp4', 'video/mpeg',
+      'audio/mpeg', 'audio/wav',
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    ];
+
+    if (allowedTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Invalid file type. Only images, videos, audio, PDFs and Office documents are allowed.'));
+    }
+  }
+});
 
 // Simple health check endpoint for Docker health checks (no external dependencies)
 app.get('/health-simple', (req, res) => {
@@ -561,6 +594,50 @@ app.get('/reply/:conversationId', (req, res) => {
           font-size: 14px;
           margin-top: 5px;
         }
+        .file-upload-zone {
+          border: 2px dashed #cbd5e0;
+          border-radius: 8px;
+          padding: 20px;
+          text-align: center;
+          margin-top: 15px;
+          cursor: pointer;
+          transition: all 0.3s;
+        }
+        .file-upload-zone:hover {
+          border-color: #7c3aed;
+          background: #f9fafb;
+        }
+        .file-input {
+          display: none;
+        }
+        .file-list {
+          margin-top: 15px;
+        }
+        .file-item {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 8px 12px;
+          background: #f3f4f6;
+          border-radius: 6px;
+          margin-bottom: 8px;
+        }
+        .file-item button {
+          background: none;
+          border: none;
+          cursor: pointer;
+          padding: 0 5px;
+          font-size: 16px;
+          flex: none;
+        }
+        .platform-warning {
+          background: #fef3c7;
+          color: #92400e;
+          padding: 12px;
+          border-radius: 8px;
+          margin-top: 10px;
+          font-size: 14px;
+        }
       </style>
     </head>
     <body>
@@ -657,10 +734,76 @@ app.get('/reply/:conversationId', (req, res) => {
         const sendBtn = document.getElementById('sendBtn');
         const successMessage = document.getElementById('successMessage');
         const errorMessage = document.getElementById('errorMessage');
+        const fileInput = document.getElementById('fileInput');
+        const fileUploadZone = document.getElementById('fileUploadZone');
+        const fileList = document.getElementById('fileList');
+
+        let selectedFiles = [];
 
         textarea.addEventListener('input', () => {
           charCount.textContent = textarea.value.length;
         });
+
+        // File upload handling
+        if (fileUploadZone && fileInput) {
+          // Click to browse
+          fileUploadZone.addEventListener('click', () => {
+            fileInput.click();
+          });
+
+          // Drag and drop
+          fileUploadZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            fileUploadZone.style.background = '#f3f0ff';
+          });
+
+          fileUploadZone.addEventListener('dragleave', () => {
+            fileUploadZone.style.background = '';
+          });
+
+          fileUploadZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            fileUploadZone.style.background = '';
+            handleFiles(e.dataTransfer.files);
+          });
+
+          fileInput.addEventListener('change', (e) => {
+            handleFiles(e.target.files);
+          });
+        }
+
+        function handleFiles(files) {
+          selectedFiles = Array.from(files);
+          displayFiles();
+        }
+
+        function displayFiles() {
+          if (!fileList) return;
+
+          fileList.innerHTML = '';
+          selectedFiles.forEach((file, index) => {
+            const fileItem = document.createElement('div');
+            fileItem.className = 'file-item';
+            fileItem.innerHTML = \`
+              <span>📎 \${file.name} (\${formatFileSize(file.size)})</span>
+              <button type="button" onclick="removeFile(\${index})">❌</button>
+            \`;
+            fileList.appendChild(fileItem);
+          });
+        }
+
+        function removeFile(index) {
+          selectedFiles.splice(index, 1);
+          displayFiles();
+        }
+
+        function formatFileSize(bytes) {
+          if (bytes === 0) return '0 Bytes';
+          const k = 1024;
+          const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+          const i = Math.floor(Math.log(bytes) / Math.log(k));
+          return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+        }
 
         form.addEventListener('submit', async (e) => {
           e.preventDefault();
@@ -670,14 +813,19 @@ app.get('/reply/:conversationId', (req, res) => {
           errorMessage.style.display = 'none';
 
           try {
+            // Create FormData
+            const formData = new FormData();
+            formData.append('replyText', textarea.value);
+
+            // Add files
+            selectedFiles.forEach(file => {
+              formData.append('files', file);
+            });
+
             const response = await fetch(form.action, {
               method: 'POST',
-              headers: {
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify({
-                replyText: textarea.value
-              })
+              body: formData
+              // Don't set Content-Type header - browser will set it with boundary for multipart
             });
 
             const result = await response.json();
@@ -712,16 +860,18 @@ app.get('/reply/:conversationId', (req, res) => {
   `);
 });
 
-// Handle reply submission
-app.post('/reply/:conversationId', async (req, res) => {
+// Handle reply submission with file uploads
+app.post('/reply/:conversationId', upload.array('files', 5), async (req, res) => {
   try {
     const { conversationId } = req.params;
     const { replyText } = req.body;
+    const files = req.files || [];
 
-    if (!replyText || replyText.trim().length === 0) {
+    // At least text or files must be provided
+    if ((!replyText || replyText.trim().length === 0) && files.length === 0) {
       return res.status(400).json({
         success: false,
-        error: 'Reply text is required'
+        error: 'Either reply text or files must be provided'
       });
     }
 
@@ -734,17 +884,56 @@ app.post('/reply/:conversationId', async (req, res) => {
       });
     }
 
-    // Send reply based on platform
-    let result;
     const identifier = conversation.platform === 'whatsapp'
       ? (conversation.senderInfo.phoneNumber || conversation.userId)
       : conversation.userId;
 
+    // Process uploaded files
+    const savedFiles = [];
+    for (const file of files) {
+      const savedFile = await saveFile(file.buffer, file.originalname, file.mimetype);
+      savedFiles.push({
+        ...savedFile,
+        url: getFileUrl(savedFile.id, savedFile.filename)
+      });
+    }
+
+    // Send messages based on platform
+    let results = [];
+
     if (conversation.platform === 'whatsapp') {
       const phoneNumber = conversation.senderInfo.phoneNumber || conversation.userId;
-      result = await sendWhatsAppMessage(phoneNumber, replyText);
+
+      // Send text message if provided
+      if (replyText && replyText.trim()) {
+        const textResult = await sendWhatsAppMessage(phoneNumber, replyText);
+        results.push(textResult);
+      }
+
+      // Send media messages for each file
+      for (const file of savedFiles) {
+        const mediaResult = await sendWhatsAppMedia(phoneNumber, file);
+        results.push(mediaResult);
+      }
+
     } else if (conversation.platform === 'line') {
-      result = await sendLineMessage(conversation.userId, replyText);
+      // Send text message if provided
+      if (replyText && replyText.trim()) {
+        const textResult = await sendLineMessage(conversation.userId, replyText);
+        results.push(textResult);
+      }
+
+      // Send media messages for supported file types
+      for (const file of savedFiles) {
+        // LINE only supports images and videos
+        if (file.mimeType.startsWith('image/') || file.mimeType.startsWith('video/')) {
+          const mediaResult = await sendLineMedia(conversation.userId, file);
+          results.push(mediaResult);
+        } else {
+          console.log(`⚠️ LINE doesn't support ${file.mimeType} files, skipping ${file.originalName}`);
+        }
+      }
+
     } else {
       return res.status(400).json({
         success: false,
@@ -752,16 +941,24 @@ app.post('/reply/:conversationId', async (req, res) => {
       });
     }
 
-    if (result.success) {
+    // Check if any message was sent successfully
+    const anySuccess = results.some(r => r && r.success);
+
+    if (anySuccess) {
       // Store outgoing message in history
+      const messageContent = replyText || `[Sent ${files.length} file(s)]`;
       storeMessage(
         identifier,
-        replyText,
+        messageContent,
         'outgoing',
         conversation.platform,
         {
           agentName: 'Support Agent',
-          messageId: result.messageId
+          files: savedFiles.map(f => ({
+            name: f.originalName,
+            type: f.mimeType,
+            url: f.url
+          }))
         }
       );
 
@@ -770,12 +967,14 @@ app.post('/reply/:conversationId', async (req, res) => {
         success: true,
         message: 'Reply sent successfully',
         platform: conversation.platform,
-        userId: conversation.userId
+        userId: conversation.userId,
+        filesCount: savedFiles.length
       });
     } else {
+      const errors = results.filter(r => !r.success).map(r => r.error).join(', ');
       res.status(500).json({
         success: false,
-        error: result.error || 'Failed to send reply'
+        error: errors || 'Failed to send reply'
       });
     }
 
@@ -785,6 +984,21 @@ app.post('/reply/:conversationId', async (req, res) => {
       success: false,
       error: error.message
     });
+  }
+});
+
+// Serve uploaded files
+app.get('/files/:filename', async (req, res) => {
+  try {
+    const { filename } = req.params;
+    const file = await readFile(filename);
+
+    res.set('Content-Type', file.mimeType);
+    res.set('Content-Length', file.size);
+    res.send(file.data);
+  } catch (error) {
+    console.error('Error serving file:', error);
+    res.status(404).json({ error: 'File not found' });
   }
 });
 
