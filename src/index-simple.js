@@ -1,8 +1,11 @@
 const express = require('express');
 const { sendMessage } = require('./services/google-chat-simple');
 const { parseWhatsAppMessage, parseLineMessage, isValidMessage } = require('./services/message-processor');
-const { routeMessage, aiHealthCheck } = require('./services/message-router');
+// Removed message router - using single space now
 const { translateMessage, healthCheck: translatorHealthCheck } = require('./services/translator');
+
+// Single Google Chat space for all messages
+const SINGLE_SPACE_ID = process.env.GCHAT_SPACE_ID || 'spaces/AAQAfKFrdxQ'; // BMA Chat Support
 const { processGoogleChatWebhook } = require('./webhooks/google-chat');
 const { healthCheck: whatsappHealthCheck, sendWhatsAppMessage } = require('./services/whatsapp-sender');
 const { healthCheck: lineHealthCheck, sendLineMessage } = require('./services/line-sender');
@@ -33,16 +36,8 @@ app.get('/health', async (req, res) => {
   const healthChecks = {};
   let overallStatus = 'ok';
 
-  // Individual health checks with timeouts and error handling
-  try {
-    healthChecks.ai = await Promise.race([
-      aiHealthCheck(),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 3000))
-    ]);
-  } catch (error) {
-    healthChecks.ai = { status: 'error', message: error.message };
-    overallStatus = 'degraded';
-  }
+  // AI health check removed - no longer using AI routing
+  healthChecks.ai = { status: 'disabled', message: 'AI routing not in use (single space mode)' };
 
   try {
     healthChecks.translator = await Promise.race([
@@ -169,12 +164,8 @@ app.post('/webhooks/whatsapp', async (req, res) => {
         console.log('Translated text preview:', translation.translatedText.substring(0, 100));
       }
 
-      // Use original text for routing (keyword matching works in any language)
-      const textForRouting = parsedMessage.messageText;
-
-      // Route message to appropriate department
-      const routing = await routeMessage(textForRouting);
-      console.log(`Routing WhatsApp message to ${routing.department} department (source: ${routing.source})`);
+      // No routing needed - all messages go to single BMA Chat Support space
+      console.log('Forwarding WhatsApp message to BMA Chat Support space');
 
       // Send the translated text (or original if no translation) to Google Chat
       const messageToSend = translation.isTranslated ? translation.translatedText : parsedMessage.messageText;
@@ -183,8 +174,8 @@ app.post('/webhooks/whatsapp', async (req, res) => {
         ...parsedMessage,
         messageText: parsedMessage.messageText  // Keep original message for reply context
       };
-      await sendMessage(routing.spaceId, messageToSend, enrichedSenderInfo);
-      console.log(`WhatsApp message forwarded to Google Chat ${routing.department} space (${routing.spaceId})`);
+      await sendMessage(SINGLE_SPACE_ID, messageToSend, enrichedSenderInfo);
+      console.log(`WhatsApp message forwarded to BMA Chat Support space`);
     } else {
       console.log('WhatsApp message could not be parsed or is invalid');
     }
@@ -235,12 +226,8 @@ app.post('/webhooks/line', async (req, res) => {
         console.log('Translated text preview:', translation.translatedText.substring(0, 100));
       }
 
-      // Use original text for routing (keyword matching works in any language)
-      const textForRouting = parsedMessage.messageText;
-
-      // Route message to appropriate department
-      const routing = await routeMessage(textForRouting);
-      console.log(`Routing LINE message to ${routing.department} department (source: ${routing.source})`);
+      // No routing needed - all messages go to single BMA Chat Support space
+      console.log('Forwarding LINE message to BMA Chat Support space');
 
       // Send the translated text (or original if no translation) to Google Chat
       const messageToSend = translation.isTranslated ? translation.translatedText : parsedMessage.messageText;
@@ -249,8 +236,8 @@ app.post('/webhooks/line', async (req, res) => {
         ...parsedMessage,
         messageText: parsedMessage.messageText  // Keep original message for reply context
       };
-      await sendMessage(routing.spaceId, messageToSend, enrichedSenderInfo);
-      console.log(`LINE message forwarded to Google Chat ${routing.department} space (${routing.spaceId})`);
+      await sendMessage(SINGLE_SPACE_ID, messageToSend, enrichedSenderInfo);
+      console.log(`LINE message forwarded to BMA Chat Support space`);
     } else {
       console.log('LINE message could not be parsed or is invalid');
     }
@@ -298,23 +285,21 @@ app.get('/polling/debug', async (req, res) => {
     const conversationStats = getStats();
     const pollingStats = getPollingStats();
 
-    // Get recent messages from each space for debugging
+    // Get recent messages from the single BMA Chat Support space
     const spaceMessages = {};
-    for (const space of ['spaces/AAQA6WeunF8', 'spaces/AAQALSfR5k4', 'spaces/AAQAfKFrdxQ']) {
-      try {
-        const { listSpaceMessages } = require('./services/google-chat-simple');
-        const messages = await listSpaceMessages(space, 5);
-        spaceMessages[space] = messages.map(msg => ({
-          id: msg.name,
-          threadId: msg.thread?.name || 'No thread',
-          text: msg.text?.substring(0, 100) || 'No text',
-          sender: msg.sender?.displayName || 'Unknown',
-          senderType: msg.sender?.type || 'Unknown',
-          createTime: msg.createTime
-        }));
-      } catch (error) {
-        spaceMessages[space] = { error: error.message };
-      }
+    try {
+      const { listSpaceMessages } = require('./services/google-chat-simple');
+      const messages = await listSpaceMessages(SINGLE_SPACE_ID, 10);
+      spaceMessages['BMA_Chat_Support'] = messages.map(msg => ({
+        id: msg.name,
+        threadId: msg.thread?.name || 'No thread',
+        text: msg.text?.substring(0, 100) || 'No text',
+        sender: msg.sender?.displayName || 'Unknown',
+        senderType: msg.sender?.type || 'Unknown',
+        createTime: msg.createTime
+      }));
+    } catch (error) {
+      spaceMessages['BMA_Chat_Support'] = { error: error.message };
     }
 
     res.json({

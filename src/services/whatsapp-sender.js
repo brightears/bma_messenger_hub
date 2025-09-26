@@ -212,7 +212,8 @@ const whatsappSender = new WhatsAppSender();
 
 module.exports = {
   whatsappSender,
-  sendWhatsAppMessage: (phoneNumber, message) => whatsappSender.sendWhatsAppMessage(phoneNumber, message),
+  sendWhatsAppMessage: (phoneNumber, message, files) => whatsappSender.sendWhatsAppMessage(phoneNumber, message, files),
+  sendMediaMessage: (phoneNumber, file) => whatsappSender.sendMediaMessage(phoneNumber, file),
   sendWithRetry: (phoneNumber, message, maxRetries) => whatsappSender.sendWithRetry(phoneNumber, message, maxRetries),
   isValidPhoneNumber: (phoneNumber) => whatsappSender.isValidPhoneNumber(phoneNumber),
   healthCheck: () => whatsappSender.healthCheck()
