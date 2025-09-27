@@ -102,12 +102,19 @@ class GoogleChatService {
         console.log(`   Conversation ID: ${conversationId}`);
 
         // Actually store the conversation with the predetermined ID
+        // Include customer info in senderInfo for conversation store
+        const enrichedSenderInfo = {
+          ...senderInfo,
+          customerName: senderInfo.customerName,
+          customerBusiness: senderInfo.customerBusiness
+        };
+
         storeConversation(
           senderInfo.platform,
           senderInfo.senderId,
           threadId,
           spaceId,
-          senderInfo,
+          enrichedSenderInfo,
           conversationId  // Pass the pre-generated ID
         );
       }
@@ -149,16 +156,21 @@ class GoogleChatService {
   }
 
   formatMessage(message, senderInfo, conversationId = null) {
-    const { platform, senderName, phoneNumber, senderId, timestamp } = senderInfo;
+    const { platform, senderName, phoneNumber, senderId, timestamp, customerName, customerBusiness } = senderInfo;
 
     const platformIcon = this.getPlatformIcon(platform);
     const platformName = platform ? platform.toUpperCase() : 'MESSAGE';
 
     let formattedMessage = `${platformIcon} *${platformName} MESSAGE*\n\n`;
 
-    // Add sender information
-    if (senderName) {
-      formattedMessage += `*From:* ${senderName}\n`;
+    // Add customer information (from AI gathering)
+    const displayName = customerName || senderName;
+    if (displayName) {
+      formattedMessage += `*From:* ${displayName}\n`;
+    }
+
+    if (customerBusiness) {
+      formattedMessage += `*Company:* ${customerBusiness}\n`;
     }
 
     if (phoneNumber) {

@@ -1,3 +1,6 @@
+// Load environment variables first
+require('dotenv').config();
+
 const express = require('express');
 const multer = require('multer');
 const crypto = require('crypto');
@@ -10,12 +13,36 @@ const { translateMessage, healthCheck: translatorHealthCheck } = require('./serv
 // Single Google Chat space for all messages
 const SINGLE_SPACE_ID = process.env.GCHAT_SPACE_ID || 'spaces/AAQAfKFrdxQ'; // BMA Chat Support
 const { processGoogleChatWebhook } = require('./webhooks/google-chat');
-const { healthCheck: whatsappHealthCheck, sendWhatsAppMessage, sendMediaMessage: sendWhatsAppMedia } = require('./services/whatsapp-sender');
+const { healthCheck: whatsappHealthCheck, sendWhatsAppMessage, sendInfoRequest: sendWhatsAppInfoRequest, sendMediaMessage: sendWhatsAppMedia } = require('./services/whatsapp-sender');
 const { healthCheck: lineHealthCheck, sendLineMessage, sendMediaMessage: sendLineMedia } = require('./services/line-sender');
 const { saveFile, getFileUrl, readFile } = require('./services/file-handler');
 const { getStats, getConversation } = require('./services/conversation-store');
 const { startPolling, stopPolling, getStatus: getPollingStatus, getStats: getPollingStats } = require('./services/google-chat-poller');
 const { storeMessage, getHistory, formatForDisplay } = require('./services/message-history');
+
+// Customer info and AI gathering services
+const {
+  isNewCustomer,
+  needsInfo,
+  initializeCustomer,
+  updateState,
+  storeCustomerInfo,
+  getCustomerInfo,
+  incrementMessageCount,
+  markInfoRequestSent,
+  wasInfoRequestSent,
+  shouldBypass,
+  getCustomerStats
+} = require('./services/customer-info');
+
+const {
+  initializeAIGatherer,
+  generateInfoRequest,
+  parseCustomerInfo,
+  detectLanguage,
+  generateFollowUp,
+  isAIGatheringEnabled
+} = require('./services/ai-gatherer');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -185,6 +212,97 @@ app.post('/webhooks/whatsapp', async (req, res) => {
         );
       }
 
+      // Check if this is a new customer or needs info
+      const customerIdentifier = phoneNumber;
+
+      // Check if message should bypass info gathering (urgent messages)
+      const bypassGathering = shouldBypass(parsedMessage.messageText);
+
+      if (isNewCustomer(customerIdentifier) && !bypassGathering) {
+        // Initialize new customer
+        initializeCustomer(customerIdentifier, 'whatsapp');
+        incrementMessageCount(customerIdentifier);
+
+        // Check if we already sent info request
+        if (!wasInfoRequestSent(customerIdentifier)) {
+          // Generate and send info request
+          const language = await detectLanguage(parsedMessage.messageText);
+          const infoRequestMessage = await generateInfoRequest('whatsapp', parsedMessage.messageText, language);
+
+          // Send automated response asking for info
+          await sendWhatsAppInfoRequest(phoneNumber, infoRequestMessage);
+          markInfoRequestSent(customerIdentifier);
+
+          console.log(`🤖 Sent info request to new customer: ${phoneNumber}`);
+
+          // Store the automated response in message history
+          storeMessage(
+            phoneNumber,
+            infoRequestMessage,
+            'outgoing',
+            'whatsapp',
+            {
+              senderName: 'BMA Bot',
+              automated: true
+            }
+          );
+        }
+
+        // Don't forward to Google Chat yet - wait for customer info
+        console.log('⏸️ Holding message - waiting for customer info');
+        res.sendStatus(200);
+        return;
+      }
+
+      // Check if we're currently gathering info
+      if (needsInfo(customerIdentifier) && !bypassGathering) {
+        incrementMessageCount(customerIdentifier);
+
+        // Try to parse customer info from their response
+        const parsedInfo = await parseCustomerInfo(parsedMessage.messageText);
+
+        if (parsedInfo.name || parsedInfo.businessName) {
+          // Store what we got
+          storeCustomerInfo(customerIdentifier, {
+            name: parsedInfo.name,
+            businessName: parsedInfo.businessName
+          });
+
+          // Check if we need more info
+          if (parsedInfo.needsMoreInfo) {
+            const language = await detectLanguage(parsedMessage.messageText);
+            const followUp = await generateFollowUp(parsedInfo, language);
+
+            if (followUp) {
+              await sendWhatsAppInfoRequest(phoneNumber, followUp);
+              console.log(`🤖 Sent follow-up question to customer: ${phoneNumber}`);
+
+              // Store the follow-up in message history
+              storeMessage(
+                phoneNumber,
+                followUp,
+                'outgoing',
+                'whatsapp',
+                {
+                  senderName: 'BMA Bot',
+                  automated: true
+                }
+              );
+
+              res.sendStatus(200);
+              return;
+            }
+          }
+
+          // We have enough info - mark as complete
+          updateState(customerIdentifier, 'complete');
+          console.log(`✅ Customer info complete for: ${phoneNumber}`);
+        }
+      }
+
+      // Get customer info if available
+      const customerInfo = getCustomerInfo(customerIdentifier) || {};
+
       // Translate message if needed
       const translation = await translateMessage(parsedMessage.messageText);
       console.log(`Translation result: ${translation.isTranslated ? 'translated from ' + translation.originalLanguage : 'no translation needed'}`);
@@ -202,13 +320,17 @@ app.post('/webhooks/whatsapp', async (req, res) => {
 
       // Send the translated text (or original if no translation) to Google Chat
       const messageToSend = translation.isTranslated ? translation.translatedText : parsedMessage.messageText;
-      // Include original message in senderInfo for reply portal
+
+      // Include customer info in senderInfo for Google Chat
       const enrichedSenderInfo = {
         ...parsedMessage,
-        messageText: parsedMessage.messageText  // Keep original message for reply context
+        messageText: parsedMessage.messageText,  // Keep original message for reply context
+        customerName: customerInfo.name || parsedMessage.senderName,
+        customerBusiness: customerInfo.businessName
       };
+
       await sendMessage(SINGLE_SPACE_ID, messageToSend, enrichedSenderInfo);
-      console.log(`WhatsApp message forwarded to BMA Chat Support space`);
+      console.log(`WhatsApp message forwarded to BMA Chat Support space with customer info`);
     } else {
       console.log('WhatsApp message could not be parsed or is invalid');
     }

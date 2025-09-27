@@ -26,6 +26,17 @@ class WhatsAppSender {
   }
 
   /**
+   * Send an automatic info request message
+   * @param {string} phoneNumber - Recipient phone number
+   * @param {string} message - Info request message
+   * @returns {Promise<Object>} API response
+   */
+  async sendInfoRequest(phoneNumber, message) {
+    console.log(`📤 Sending info request to ${phoneNumber}`);
+    return this.sendWhatsAppMessage(phoneNumber, message);
+  }
+
+  /**
    * Send a text message to a WhatsApp user
    * @param {string} phoneNumber - Recipient phone number (without +)
    * @param {string} message - Message text to send
@@ -299,6 +310,7 @@ const whatsappSender = new WhatsAppSender();
 module.exports = {
   whatsappSender,
   sendWhatsAppMessage: (phoneNumber, message, files) => whatsappSender.sendWhatsAppMessage(phoneNumber, message, files),
+  sendInfoRequest: (phoneNumber, message) => whatsappSender.sendInfoRequest(phoneNumber, message),
   sendMediaMessage: (phoneNumber, file) => whatsappSender.sendMediaMessage(phoneNumber, file),
   sendWithRetry: (phoneNumber, message, maxRetries) => whatsappSender.sendWithRetry(phoneNumber, message, maxRetries),
   isValidPhoneNumber: (phoneNumber) => whatsappSender.isValidPhoneNumber(phoneNumber),
