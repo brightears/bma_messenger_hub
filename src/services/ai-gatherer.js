@@ -32,9 +32,9 @@ class AIGatherer {
       }
 
       this.genAI = new GoogleGenerativeAI(apiKey);
-      this.model = this.genAI.getGenerativeModel({ model: 'gemini-1.5-flash-latest' });
+      this.model = this.genAI.getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-2.5-flash' });
       this.initialized = true;
-      console.log('✨ AI gatherer initialized with Gemini 1.5 Flash');
+      console.log(`✨ AI gatherer initialized with ${process.env.GEMINI_MODEL || 'gemini-2.5-flash'}`);
       return true;
     } catch (error) {
       console.error('Failed to initialize AI gatherer:', error.message);
