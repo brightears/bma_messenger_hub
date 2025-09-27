@@ -1,13 +1,26 @@
-# BMA Messenger Hub
+# BMAsia Messenger Hub
 
-AI-driven multi-channel communication platform that intelligently routes customer messages from WhatsApp Business and LINE Business to appropriate Google Spaces departments.
+AI-driven multi-channel communication platform that intelligently routes customer messages from WhatsApp Business and LINE Business to Google Chat spaces for BMAsia's music and sound design services.
 
-## Features
+## Current Features (v1.1 Stable)
 
-- **Intelligent Message Routing**: Uses keyword detection with AI fallback to route messages to Sales, Design, or Technical Support
-- **Multi-Language Support**: Automatic translation between languages while preserving original messages
-- **Bidirectional Communication**: Seamlessly reply from Google Spaces back to customers on their original platform
-- **Natural AI Clarification**: When message intent is unclear, AI naturally asks for clarification
+### Core Messaging
+- **Single Space Routing**: All messages route to BMA Chat Support space for simplified management
+- **Multi-Platform Support**: WhatsApp Business and LINE Business integration
+- **Bidirectional Communication**: Reply from Google Chat back to customers on their original platform
+- **Reply Portal**: Web interface for sending responses with full conversation history
+
+### AI-Powered Features
+- **Intelligent Information Gathering**: Automatically collects customer name and company on first contact
+- **Smart Language Detection**: Responds in customer's language (Thai/English)
+- **Natural Conversation**: Uses Gemini 2.5 Flash for contextual, polite information requests
+- **One-Time Collection**: Only asks for information once per customer (24-hour memory)
+
+### Data Management
+- **24-Hour Message History**: Stores all conversations for 24 hours
+- **Customer Information Cache**: Remembers customer details for returning visitors within 24 hours
+- **Conversation Tracking**: Links WhatsApp/LINE conversations to Google Chat threads
+- **Automatic Cleanup**: Old data is automatically removed after 24 hours
 
 ## Architecture
 

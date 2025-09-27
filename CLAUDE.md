@@ -1,8 +1,19 @@
 # Claude Code Development Guide
 
-## Project: BMA Messenger Hub
+## Project: BMAsia Messenger Hub
 
-This document provides Claude Code-specific instructions and best practices for developing the BMA Messenger Hub platform.
+This document provides Claude Code-specific instructions and best practices for developing the BMAsia Messenger Hub platform.
+
+## Current Status (v1.1-stable-ai-gathering)
+
+### Working Features
+- ✅ Single-space routing (BMA Chat Support)
+- ✅ AI information gathering (customer name & company)
+- ✅ 24-hour message history storage
+- ✅ Customer info persistence (24 hours)
+- ✅ Language auto-detection (Thai/English)
+- ✅ Reply portal with conversation tracking
+- ✅ WhatsApp & LINE webhook integration
 
 ## Sub-Agents Usage
 
@@ -51,14 +62,16 @@ npm run dev
 ## API Keys and Services
 
 ### Google Gemini 2.5 Flash
-- Model: `gemini-2.5-flash`
-- Used for: Message classification, translation
+- Model: `gemini-2.5-flash` (configured via GEMINI_MODEL env var)
+- Used for: AI information gathering, translation, message classification
 - Temperature: 0.7 (configurable)
+- Also powers the AI gatherer service for customer info collection
 
 ### Google Spaces
-- Technical: `spaces/AAQA6WeunF8`
-- Design: `spaces/AAQALSfR5k4`
-- Sales: `spaces/AAQAfKFrdxQ`
+- BMA Chat Support (Single Space): `spaces/AAQAfKFrdxQ`
+- (Legacy - not in use):
+  - Technical: `spaces/AAQA6WeunF8`
+  - Design: `spaces/AAQALSfR5k4`
 
 ### Service Account
 - Already configured in `GOOGLE_CREDENTIALS_JSON`
@@ -72,16 +85,17 @@ npm run dev
 
 ## Message Routing Logic
 
-### Keyword-Based Routing (Primary)
+### Current Implementation
+- All messages route to single BMA Chat Support space
+- No keyword-based routing (simplified approach)
+- AI is used for information gathering, not routing
 
-Keywords should be checked first for efficiency:
-- **Technical**: "support", "help", "issue", "problem", "technical", "error", "bug"
-- **Sales**: "quote", "quotation", "price", "cost", "purchase", "buy", "order"
-- **Design**: "design", "music", "soundtrack", "playlist", "branding"
-
-### AI Routing (Fallback)
-
-Only use Gemini when keywords don't match. Keep prompts concise and focused.
+### AI Information Gathering
+- Triggers on first customer contact
+- Asks for name and company in customer's language
+- Stores info for 24 hours
+- Uses fallback messages if AI unavailable
+- Bypasses gathering for urgent messages
 
 ## Translation Strategy
 
@@ -129,12 +143,18 @@ Before deploying to Render:
 - Implement rate limiting
 - No sensitive data in logs
 
-## Database Usage
+## Data Storage
 
-- Optional (controlled by `USE_DATABASE` flag)
-- Use for conversation history if enabled
-- PostgreSQL on Render
-- Keep schema minimal
+### Current Implementation (Memory-based)
+- All data stored in memory
+- 24-hour TTL for messages and customer info
+- Automatic cleanup every hour
+- No database required
+
+### Future Enhancement (Optional)
+- PostgreSQL on Render for persistent storage
+- Controlled by `USE_DATABASE` flag
+- Would enable long-term conversation history
 
 ## Redis Queue
 
@@ -146,9 +166,10 @@ Before deploying to Render:
 ## Common Issues
 
 1. **Webhook not receiving**: Check ngrok/Render URL configuration
-2. **Translation failing**: Verify Gemini API quota
-3. **Messages not routing**: Check space IDs and permissions
-4. **Auth errors**: Verify service account has correct permissions
+2. **AI gathering failing**: Check Gemini API key and model name (gemini-2.5-flash)
+3. **Messages not forwarding**: Verify Google Chat service account permissions
+4. **Customer info lost**: Normal - data expires after 24 hours
+5. **Render cold starts**: Upgrade to paid tier to eliminate sleep/wake delays
 
 ## Testing Strategy
 

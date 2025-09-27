@@ -58,8 +58,8 @@ class AIGatherer {
     if (!this.initialized) {
       // Fallback message if AI is not available
       return language === 'th'
-        ? "สวัสดีค่ะ/ครับ ขอบคุณที่ติดต่อ BMA เพื่อให้บริการได้ดียิ่งขึ้น กรุณาแจ้งชื่อและชื่อบริษัทของท่านด้วยค่ะ/ครับ"
-        : "Hello! Thank you for contacting BMA. To assist you better, could you please share your name and company name?";
+        ? "สวัสดีค่ะ/ครับ ขอบคุณที่ติดต่อ BMAsia เพื่อให้บริการได้ดียิ่งขึ้น กรุณาแจ้งชื่อและชื่อบริษัทของท่านด้วยค่ะ/ครับ"
+        : "Hello! Thank you for contacting BMAsia. To assist you better, could you please share your name and company name?";
     }
 
     try {
@@ -68,7 +68,7 @@ class AIGatherer {
       - Platform: ${platform}
       - Customer's message: "${originalMessage}"
       - Language: ${language === 'th' ? 'Thai' : 'English'}
-      - Company name: BMA (music and sound design company)
+      - Company name: BMAsia (music and sound design company)
 
       Requirements:
       - Be warm and welcoming
@@ -169,8 +169,8 @@ class AIGatherer {
    */
   getDefaultInfoRequest(language) {
     const messages = {
-      en: "Hello! Thank you for contacting BMA. To assist you better, could you please share your name and company name?",
-      th: "สวัสดีค่ะ/ครับ ขอบคุณที่ติดต่อ BMA เพื่อให้บริการได้ดียิ่งขึ้น กรุณาแจ้งชื่อและชื่อบริษัทของท่านด้วยค่ะ/ครับ"
+      en: "Hello! Thank you for contacting BMAsia. To assist you better, could you please share your name and company name?",
+      th: "สวัสดีค่ะ/ครับ ขอบคุณที่ติดต่อ BMAsia เพื่อให้บริการได้ดียิ่งขึ้น กรุณาแจ้งชื่อและชื่อบริษัทของท่านด้วยค่ะ/ครับ"
     };
 
     return messages[language] || messages.en;
