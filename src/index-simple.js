@@ -14,7 +14,7 @@ const { translateMessage, healthCheck: translatorHealthCheck } = require('./serv
 const SINGLE_SPACE_ID = process.env.GCHAT_SPACE_ID || 'spaces/AAQAfKFrdxQ'; // BMA Chat Support
 const { processGoogleChatWebhook } = require('./webhooks/google-chat');
 const { healthCheck: whatsappHealthCheck, sendWhatsAppMessage, sendInfoRequest: sendWhatsAppInfoRequest, sendMediaMessage: sendWhatsAppMedia } = require('./services/whatsapp-sender');
-const { healthCheck: lineHealthCheck, sendLineMessage, sendMediaMessage: sendLineMedia } = require('./services/line-sender');
+const { healthCheck: lineHealthCheck, sendLineMessage, sendInfoRequest: sendLineInfoRequest, sendMediaMessage: sendLineMedia } = require('./services/line-sender');
 const { saveFile, getFileUrl, readFile } = require('./services/file-handler');
 const { getStats, getConversation } = require('./services/conversation-store');
 const { startPolling, stopPolling, getStatus: getPollingStatus, getStats: getPollingStats } = require('./services/google-chat-poller');
@@ -356,6 +356,8 @@ app.post('/webhooks/line', async (req, res) => {
 
       // Store incoming message in history
       const userId = parsedMessage.senderId;
+      const customerIdentifier = userId; // For LINE, use userId as identifier
+
       if (userId) {
         storeMessage(
           userId,
@@ -367,7 +369,82 @@ app.post('/webhooks/line', async (req, res) => {
             messageId: parsedMessage.messageId
           }
         );
+
+        // Increment message count for customer
+        incrementMessageCount(customerIdentifier);
       }
+
+      // Check if message should bypass info gathering (urgent keywords)
+      const bypassGathering = shouldBypass(parsedMessage.messageText);
+
+      // Check if this is a new customer
+      if (isNewCustomer(customerIdentifier) && !bypassGathering) {
+        // Initialize new customer
+        initializeCustomer(customerIdentifier, 'line');
+
+        // Check if we already sent info request
+        if (!wasInfoRequestSent(customerIdentifier)) {
+          // Detect language for the info request
+          const language = await detectLanguage(parsedMessage.messageText);
+
+          // Generate AI info request
+          const infoRequestMessage = await generateInfoRequest('line', parsedMessage.messageText, language);
+
+          // Send info request to LINE user
+          const infoResult = await sendLineInfoRequest(userId, infoRequestMessage);
+
+          // Mark that we sent the info request
+          markInfoRequestSent(customerIdentifier);
+
+          // Store outgoing info request in history
+          if (infoResult.success) {
+            storeMessage(
+              userId,
+              infoRequestMessage,
+              'outgoing',
+              'line',
+              { type: 'info_request' }
+            );
+          }
+
+          console.log(`🤖 Sent info request to new LINE customer: ${userId}`);
+          res.sendStatus(200);
+          return; // Don't forward to Google Chat yet
+        }
+      }
+
+      // Check if customer is in gathering state
+      if (needsInfo(customerIdentifier)) {
+        // Try to parse customer info from their response
+        const parsedInfo = await parseCustomerInfo(parsedMessage.messageText);
+
+        if (parsedInfo && (parsedInfo.name || parsedInfo.businessName)) {
+          // Store the customer info
+          storeCustomerInfo(customerIdentifier, {
+            name: parsedInfo.name,
+            businessName: parsedInfo.businessName
+          });
+
+          console.log(`✅ Customer info complete for LINE user: ${userId}`);
+        }
+
+        // Check if we need follow-up
+        if (parsedInfo && parsedInfo.needsMoreInfo) {
+          const language = await detectLanguage(parsedMessage.messageText);
+          const followUp = await generateFollowUp(parsedInfo, language);
+
+          if (followUp) {
+            await sendLineInfoRequest(userId, followUp);
+            storeMessage(userId, followUp, 'outgoing', 'line', { type: 'follow_up' });
+            console.log(`📝 Sent follow-up question to LINE user: ${userId}`);
+            res.sendStatus(200);
+            return; // Still gathering info
+          }
+        }
+      }
+
+      // Get customer info for enrichment
+      const customerInfo = getCustomerInfo(customerIdentifier);
 
       // Translate message if needed
       const translation = await translateMessage(parsedMessage.messageText);
@@ -386,13 +463,15 @@ app.post('/webhooks/line', async (req, res) => {
 
       // Send the translated text (or original if no translation) to Google Chat
       const messageToSend = translation.isTranslated ? translation.translatedText : parsedMessage.messageText;
-      // Include original message in senderInfo for reply portal
+      // Include customer info and original message in senderInfo for reply portal
       const enrichedSenderInfo = {
         ...parsedMessage,
-        messageText: parsedMessage.messageText  // Keep original message for reply context
+        messageText: parsedMessage.messageText,  // Keep original message for reply context
+        customerName: customerInfo?.name,
+        customerBusiness: customerInfo?.businessName
       };
       await sendMessage(SINGLE_SPACE_ID, messageToSend, enrichedSenderInfo);
-      console.log(`LINE message forwarded to BMA Chat Support space`);
+      console.log(`LINE message forwarded to BMA Chat Support space with customer info`);
     } else {
       console.log('LINE message could not be parsed or is invalid');
     }

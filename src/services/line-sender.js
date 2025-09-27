@@ -25,6 +25,17 @@ class LineSender {
   }
 
   /**
+   * Send an automatic info request message
+   * @param {string} userId - Recipient LINE user ID
+   * @param {string} message - Info request message
+   * @returns {Promise<Object>} API response
+   */
+  async sendInfoRequest(userId, message) {
+    console.log(`📤 Sending info request to LINE user ${userId}`);
+    return this.sendLineMessage(userId, message);
+  }
+
+  /**
    * Send a text message to a LINE user
    * @param {string} userId - Recipient LINE user ID
    * @param {string} message - Message text to send
@@ -385,6 +396,7 @@ const lineSender = new LineSender();
 module.exports = {
   lineSender,
   sendLineMessage: (userId, message) => lineSender.sendLineMessage(userId, message),
+  sendInfoRequest: (userId, message) => lineSender.sendInfoRequest(userId, message),
   sendMediaMessage: (userId, file) => lineSender.sendMediaMessage(userId, file),
   sendWithRetry: (userId, message, maxRetries) => lineSender.sendWithRetry(userId, message, maxRetries),
   sendRichMessage: (userId, message, quickReplies) => lineSender.sendRichMessage(userId, message, quickReplies),
