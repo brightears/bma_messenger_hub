@@ -2,7 +2,7 @@
 
 AI-driven multi-channel communication platform that intelligently routes customer messages from WhatsApp Business and LINE Business to Google Chat spaces for BMAsia's music and sound design services.
 
-## Current Features (v1.1 Stable)
+## Current Features (v1.2 Stable)
 
 ### Core Messaging
 - **Single Space Routing**: All messages route to BMA Chat Support space for simplified management
@@ -11,10 +11,11 @@ AI-driven multi-channel communication platform that intelligently routes custome
 - **Reply Portal**: Web interface for sending responses with full conversation history
 
 ### AI-Powered Features
-- **Intelligent Information Gathering**: Automatically collects customer name and company on first contact
+- **Intelligent Information Gathering**: Automatically collects customer name and company on first contact (WhatsApp & LINE)
 - **Smart Language Detection**: Responds in customer's language (Thai/English)
 - **Natural Conversation**: Uses Gemini 2.5 Flash for contextual, polite information requests
 - **One-Time Collection**: Only asks for information once per customer (24-hour memory)
+- **Platform Parity**: Both WhatsApp and LINE have identical AI gathering capabilities
 
 ### Data Management
 - **24-Hour Message History**: Stores all conversations for 24 hours

@@ -4,16 +4,17 @@
 
 This document provides Claude Code-specific instructions and best practices for developing the BMAsia Messenger Hub platform.
 
-## Current Status (v1.1-stable-ai-gathering)
+## Current Status (v1.2-stable-line-ai-fix)
 
 ### Working Features
 - ✅ Single-space routing (BMA Chat Support)
-- ✅ AI information gathering (customer name & company)
+- ✅ AI information gathering (customer name & company) - WhatsApp & LINE
 - ✅ 24-hour message history storage
 - ✅ Customer info persistence (24 hours)
 - ✅ Language auto-detection (Thai/English)
 - ✅ Reply portal with conversation tracking
 - ✅ WhatsApp & LINE webhook integration
+- ✅ Platform parity - Both WhatsApp and LINE have identical AI gathering
 
 ## Sub-Agents Usage
 
@@ -170,6 +171,7 @@ Before deploying to Render:
 3. **Messages not forwarding**: Verify Google Chat service account permissions
 4. **Customer info lost**: Normal - data expires after 24 hours
 5. **Render cold starts**: Upgrade to paid tier to eliminate sleep/wake delays
+6. **LINE AI not triggering**: Fixed in v1.2 - ensure sendInfoRequest is implemented in line-sender.js
 
 ## Testing Strategy
 
