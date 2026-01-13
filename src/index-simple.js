@@ -1115,18 +1115,28 @@ app.get('/reply/:conversationId', async (req, res) => {
       );
 
       const conversations = listResponse.data?.conversations || [];
-      for (const conv of conversations) {
+
+      // Only check the MOST RECENT conversation (first in list)
+      // If it's "in-progress" (no transcript), fall back to stored messages
+      // Don't use older conversations - they're from previous sessions
+      if (conversations.length > 0) {
+        const mostRecentConv = conversations[0];
+        console.log(`Most recent ElevenLabs conversation: ${mostRecentConv.conversation_id}, status: ${mostRecentConv.status}`);
+
         try {
           const convResponse = await axios.get(
-            `https://api.elevenlabs.io/v1/convai/conversations/${conv.conversation_id}`,
+            `https://api.elevenlabs.io/v1/convai/conversations/${mostRecentConv.conversation_id}`,
             { headers: { 'xi-api-key': ELEVENLABS_API_KEY } }
           );
 
           const transcript = convResponse.data?.transcript || [];
           const startTime = convResponse.data?.metadata?.start_time_unix_secs || (Date.now() / 1000);
+          const convStatus = convResponse.data?.status || mostRecentConv.status;
+
+          console.log(`Conversation ${mostRecentConv.conversation_id}: status=${convStatus}, transcript_length=${transcript.length}`);
 
           if (transcript.length > 0) {
-            console.log(`Found transcript with ${transcript.length} messages in ${conv.conversation_id}`);
+            console.log(`Using transcript with ${transcript.length} messages from ${mostRecentConv.conversation_id}`);
 
             // Use ElevenLabs transcript directly - it has proper chronological order
             formattedHistory = transcript.map((entry, index) => {
@@ -1147,10 +1157,12 @@ app.get('/reply/:conversationId', async (req, res) => {
             }).filter(m => m.text.trim()); // Remove empty messages
 
             usedElevenLabsTranscript = true;
-            break;
+          } else {
+            // No transcript yet (conversation in-progress) - will fall back to stored messages
+            console.log(`No transcript available for most recent conversation (status: ${convStatus}) - using stored messages`);
           }
         } catch (err) {
-          console.log(`Could not fetch transcript for ${conv.conversation_id}:`, err.message);
+          console.log(`Could not fetch transcript for ${mostRecentConv.conversation_id}:`, err.message);
         }
       }
     } catch (err) {
