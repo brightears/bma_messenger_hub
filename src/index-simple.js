@@ -188,51 +188,50 @@ app.post('/api/soundtrack/zone-status', async (req, res) => {
       });
     }
 
-    // Try to extract zone/account ID from various formats
-    let extractedZoneId = null;
-    let extractedAccountId = null;
+    // Determine ID type and format
+    // IMPORTANT: Soundtrack API requires FULL encoded IDs (e.g., QWNjb3VudCwsMWg3amd6bnd0Zmsv)
+    // NOT the decoded short IDs (e.g., 1h7jgznwtfk)
+    let queryId = inputId;  // Use input directly by default
+    let idType = 'unknown';
     let useAccountLookup = false;
 
-    // Check if it's a base64 encoded string (contains typical base64 chars)
+    // Check if it's a base64 encoded string
     if (/^[A-Za-z0-9+/=]+$/.test(inputId) && inputId.length > 20) {
       try {
         const decoded = Buffer.from(inputId, 'base64').toString('utf8');
         console.log('Decoded ID:', decoded);
 
-        // Parse the decoded string: SoundZone,,{id}/Location,{id}/Account,,{id}/
-        // Or just: Account,,{id}/
-        const zoneMatch = decoded.match(/SoundZone,,([^/]+)/);
-        const accountMatch = decoded.match(/Account,,([^/]+)/);
-
-        if (zoneMatch) extractedZoneId = zoneMatch[1];
-        if (accountMatch) extractedAccountId = accountMatch[1];
-
-        // If only account was found (no zone), use account lookup
-        if (!extractedZoneId && extractedAccountId) {
+        // Determine type from decoded string
+        if (decoded.includes('SoundZone,,')) {
+          idType = 'zone';
+          // For zones, we need the zone-specific encoded ID, not the full path
+          // Extract just the zone portion and re-encode if needed
+        } else if (decoded.includes('Account,,')) {
+          idType = 'account';
           useAccountLookup = true;
         }
 
-        console.log('Extracted Zone ID:', extractedZoneId);
-        console.log('Extracted Account ID:', extractedAccountId);
-        console.log('Use account lookup:', useAccountLookup);
+        // Use the ORIGINAL encoded ID for the query (not the decoded short ID)
+        queryId = inputId;
+        console.log('ID type:', idType, '- using encoded ID for query');
       } catch (e) {
         console.log('Not a valid base64 string, using as-is');
-        extractedZoneId = inputId;
       }
-    } else {
-      // Plain ID provided
-      extractedZoneId = inputId;
     }
+
+    console.log('Query ID:', queryId);
+    console.log('Use account lookup:', useAccountLookup);
 
     // Query Soundtrack API
     const SOUNDTRACK_TOKEN = process.env.SOUNDTRACK_API_TOKEN || 'YVhId2UyTWJVWEhMRWlycUFPaUl3Y2NtOXNGeUoxR0Q6SVRHazZSWDVYV2FTenhiS1ZwNE1sSmhHUUJEVVRDdDZGU0FwVjZqMXNEQU1EMjRBT2pub2hmZ3NQODRRNndQWg==';
 
-    // If we only have account ID, do account lookup first
-    if (useAccountLookup && extractedAccountId) {
+    // If it's an account ID, do account lookup
+    if (useAccountLookup) {
       const accountQuery = JSON.stringify({
-        query: `query { account(id: "${extractedAccountId}") { id businessName locations(first: 5) { edges { node { name soundZones(first: 20) { edges { node { id name isPaired playback { playing } } } } } } } } }`
+        query: `query { account(id: "${queryId}") { id businessName locations(first: 5) { edges { node { name soundZones(first: 20) { edges { node { id name isPaired playback { playing } } } } } } } } }`
       });
 
+      console.log('Account query with encoded ID:', queryId);
       const accountResponse = await axios.post('https://api.soundtrackyourbrand.com/v2', accountQuery, {
         headers: {
           'Authorization': `Basic ${SOUNDTRACK_TOKEN}`,
@@ -269,86 +268,83 @@ app.post('/api/soundtrack/zone-status', async (req, res) => {
         return res.json({
           success: false,
           error: 'Account not found or not accessible. This account may not be managed by BMAsia.',
-          extracted_account_id: extractedAccountId
+          query_id: queryId
         });
       }
     }
 
-    // Try to query the zone directly
-    if (extractedZoneId) {
-      const zoneQuery = JSON.stringify({
-        query: `query { soundZone(id: "${extractedZoneId}") { id name isPaired playback { playing } } }`
-      });
+    // Try zone lookup first (for zone IDs or unknown types)
+    const zoneQuery = JSON.stringify({
+      query: `query { soundZone(id: "${queryId}") { id name isPaired playback { playing } } }`
+    });
 
-      const response = await axios.post('https://api.soundtrackyourbrand.com/v2', zoneQuery, {
-        headers: {
-          'Authorization': `Basic ${SOUNDTRACK_TOKEN}`,
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (response.data.data?.soundZone) {
-        const zone = response.data.data.soundZone;
-        return res.json({
-          success: true,
-          zone: {
-            id: zone.id,
-            name: zone.name,
-            is_paired: zone.isPaired,
-            is_playing: zone.playback?.playing || false
-          },
-          message: `Zone "${zone.name}" is ${zone.isPaired ? 'paired' : 'not paired'} and ${zone.playback?.playing ? 'currently playing' : 'not playing'}.`
-        });
+    console.log('Zone query with ID:', queryId);
+    const response = await axios.post('https://api.soundtrackyourbrand.com/v2', zoneQuery, {
+      headers: {
+        'Authorization': `Basic ${SOUNDTRACK_TOKEN}`,
+        'Content-Type': 'application/json'
       }
+    });
+
+    if (response.data.data?.soundZone) {
+      const zone = response.data.data.soundZone;
+      return res.json({
+        success: true,
+        zone: {
+          id: zone.id,
+          name: zone.name,
+          is_paired: zone.isPaired,
+          is_playing: zone.playback?.playing || false
+        },
+        message: `Zone "${zone.name}" is ${zone.isPaired ? 'paired' : 'not paired'} and ${zone.playback?.playing ? 'currently playing' : 'not playing'}.`
+      });
     }
 
     // Zone not found - try account lookup as fallback
-    if (extractedAccountId) {
-      const accountQuery = JSON.stringify({
-        query: `query { account(id: "${extractedAccountId}") { id businessName locations(first: 5) { edges { node { name soundZones(first: 20) { edges { node { id name isPaired playback { playing } } } } } } } } }`
-      });
+    const accountQuery = JSON.stringify({
+      query: `query { account(id: "${queryId}") { id businessName locations(first: 5) { edges { node { name soundZones(first: 20) { edges { node { id name isPaired playback { playing } } } } } } } } }`
+    });
 
-      const accountResponse = await axios.post('https://api.soundtrackyourbrand.com/v2', accountQuery, {
-        headers: {
-          'Authorization': `Basic ${SOUNDTRACK_TOKEN}`,
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (accountResponse.data.data?.account) {
-        const account = accountResponse.data.data.account;
-        const allZones = [];
-        for (const locEdge of (account.locations?.edges || [])) {
-          const location = locEdge.node;
-          for (const zoneEdge of (location.soundZones?.edges || [])) {
-            const zone = zoneEdge.node;
-            allZones.push({
-              id: zone.id,
-              name: zone.name,
-              location: location.name,
-              is_paired: zone.isPaired,
-              is_playing: zone.playback?.playing || false
-            });
-          }
-        }
-        return res.json({
-          success: true,
-          account: {
-            id: account.id,
-            business_name: account.businessName,
-            zones: allZones
-          },
-          message: `Zone not found directly, but found account "${account.businessName}" with ${allZones.length} zone(s). ${allZones.map(z => `${z.name}: ${z.is_paired ? 'paired' : 'not paired'}, ${z.is_playing ? 'playing' : 'not playing'}`).join('. ')}`
-        });
+    console.log('Fallback account query with ID:', queryId);
+    const accountResponse = await axios.post('https://api.soundtrackyourbrand.com/v2', accountQuery, {
+      headers: {
+        'Authorization': `Basic ${SOUNDTRACK_TOKEN}`,
+        'Content-Type': 'application/json'
       }
+    });
+
+    if (accountResponse.data.data?.account) {
+      const account = accountResponse.data.data.account;
+      const allZones = [];
+      for (const locEdge of (account.locations?.edges || [])) {
+        const location = locEdge.node;
+        for (const zoneEdge of (location.soundZones?.edges || [])) {
+          const zone = zoneEdge.node;
+          allZones.push({
+            id: zone.id,
+            name: zone.name,
+            location: location.name,
+            is_paired: zone.isPaired,
+            is_playing: zone.playback?.playing || false
+          });
+        }
+      }
+      return res.json({
+        success: true,
+        account: {
+          id: account.id,
+          business_name: account.businessName,
+          zones: allZones
+        },
+        message: `Found account "${account.businessName}" with ${allZones.length} zone(s). ${allZones.map(z => `${z.name}: ${z.is_paired ? 'paired' : 'not paired'}, ${z.is_playing ? 'playing' : 'not playing'}`).join('. ')}`
+      });
     }
 
     // Neither zone nor account accessible
     return res.json({
       success: false,
       error: 'Zone or account not found. This might be because it is not managed by BMAsia. Please check if your zone is under BMAsia management or contact support.',
-      extracted_zone_id: extractedZoneId,
-      extracted_account_id: extractedAccountId
+      query_id: queryId
     });
 
   } catch (error) {
