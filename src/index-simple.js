@@ -228,7 +228,7 @@ app.post('/api/soundtrack/zone-status', async (req, res) => {
     // If it's an account ID, do account lookup
     if (useAccountLookup) {
       const accountQuery = JSON.stringify({
-        query: `query { account(id: "${queryId}") { id businessName locations(first: 5) { edges { node { name soundZones(first: 20) { edges { node { id name isPaired playback { playing } } } } } } } } }`
+        query: `query { account(id: "${queryId}") { id businessName locations(first: 5) { edges { node { name soundZones(first: 20) { edges { node { id name isPaired playback { state } } } } } } } } }`
       });
 
       console.log('Account query with encoded ID:', queryId);
@@ -254,7 +254,7 @@ app.post('/api/soundtrack/zone-status', async (req, res) => {
               name: zone.name,
               location: location.name,
               is_paired: zone.isPaired,
-              is_playing: zone.playback?.playing || false
+              is_playing: zone.playback?.state === 'playing'
             });
           }
         }
@@ -268,18 +268,18 @@ app.post('/api/soundtrack/zone-status', async (req, res) => {
           message: `Found account "${account.businessName}" with ${allZones.length} zone(s). ${allZones.map(z => `${z.name}: ${z.is_paired ? 'paired' : 'not paired'}, ${z.is_playing ? 'playing' : 'not playing'}`).join('. ')}`
         });
       } else {
+        console.log('Account not found. API response:', JSON.stringify(accountResponse.data));
         return res.json({
           success: false,
           error: 'Account not found or not accessible. This account may not be managed by BMAsia.',
-          query_id: queryId,
-          api_response: accountResponse.data
+          query_id: queryId
         });
       }
     }
 
     // Try zone lookup first (for zone IDs or unknown types)
     const zoneQuery = JSON.stringify({
-      query: `query { soundZone(id: "${queryId}") { id name isPaired playback { playing } } }`
+      query: `query { soundZone(id: "${queryId}") { id name isPaired playback { state } } }`
     });
 
     console.log('Zone query with ID:', queryId);
@@ -298,7 +298,7 @@ app.post('/api/soundtrack/zone-status', async (req, res) => {
           id: zone.id,
           name: zone.name,
           is_paired: zone.isPaired,
-          is_playing: zone.playback?.playing || false
+          is_playing: zone.playback?.state === 'playing'
         },
         message: `Zone "${zone.name}" is ${zone.isPaired ? 'paired' : 'not paired'} and ${zone.playback?.playing ? 'currently playing' : 'not playing'}.`
       });
@@ -306,7 +306,7 @@ app.post('/api/soundtrack/zone-status', async (req, res) => {
 
     // Zone not found - try account lookup as fallback
     const accountQuery = JSON.stringify({
-      query: `query { account(id: "${queryId}") { id businessName locations(first: 5) { edges { node { name soundZones(first: 20) { edges { node { id name isPaired playback { playing } } } } } } } } }`
+      query: `query { account(id: "${queryId}") { id businessName locations(first: 5) { edges { node { name soundZones(first: 20) { edges { node { id name isPaired playback { state } } } } } } } } }`
     });
 
     console.log('Fallback account query with ID:', queryId);
@@ -329,7 +329,7 @@ app.post('/api/soundtrack/zone-status', async (req, res) => {
             name: zone.name,
             location: location.name,
             is_paired: zone.isPaired,
-            is_playing: zone.playback?.playing || false
+            is_playing: zone.playback?.state === 'playing'
           });
         }
       }
