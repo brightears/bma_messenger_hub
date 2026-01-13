@@ -8,13 +8,13 @@ This document provides Claude Code-specific instructions and best practices for 
 
 ### Working Features
 - ✅ Single-space routing (BMA Chat Support)
-- ✅ AI information gathering (customer name & company) - WhatsApp & LINE
+- ✅ AI information gathering (customer name & company) - **LINE only** (WhatsApp handled by ElevenLabs)
 - ✅ 24-hour message history storage
 - ✅ Customer info persistence (24 hours)
 - ✅ Language auto-detection (Thai/English)
 - ✅ Reply portal with conversation tracking
 - ✅ WhatsApp & LINE webhook integration
-- ✅ Platform parity - Both WhatsApp and LINE have identical AI gathering
+- ✅ ElevenLabs Conversational AI integration for WhatsApp
 
 ## Sub-Agents Usage
 
@@ -92,7 +92,9 @@ npm run dev
 - AI is used for information gathering, not routing
 
 ### AI Information Gathering
-- Triggers on first customer contact
+- **WhatsApp**: Disabled by default - ElevenLabs Conversational AI handles greetings
+  - To re-enable: Set `ENABLE_WHATSAPP_AUTO_GREETING=true` in environment
+- **LINE**: Still active - triggers on first customer contact
 - Asks for name and company in customer's language
 - Stores info for 24 hours
 - Uses fallback messages if AI unavailable

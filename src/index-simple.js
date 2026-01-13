@@ -215,89 +215,102 @@ app.post('/webhooks/whatsapp', async (req, res) => {
       // Check if this is a new customer or needs info
       const customerIdentifier = phoneNumber;
 
-      // Check if message should bypass info gathering (urgent messages)
-      const bypassGathering = shouldBypass(parsedMessage.messageText);
+      // ============================================================
+      // WHATSAPP AUTO-GREETING DISABLED
+      // ElevenLabs Conversational AI agent now handles greetings
+      // and info gathering for WhatsApp. This prevents double
+      // welcome messages being sent to customers.
+      // To re-enable, set ENABLE_WHATSAPP_AUTO_GREETING=true
+      // ============================================================
+      const enableWhatsAppAutoGreeting = process.env.ENABLE_WHATSAPP_AUTO_GREETING === 'true';
 
-      if (isNewCustomer(customerIdentifier) && !bypassGathering) {
-        // Initialize new customer
-        initializeCustomer(customerIdentifier, 'whatsapp');
-        incrementMessageCount(customerIdentifier);
+      if (enableWhatsAppAutoGreeting) {
+        // Check if message should bypass info gathering (urgent messages)
+        const bypassGathering = shouldBypass(parsedMessage.messageText);
 
-        // Check if we already sent info request
-        if (!wasInfoRequestSent(customerIdentifier)) {
-          // Generate and send info request
-          const language = await detectLanguage(parsedMessage.messageText);
-          const infoRequestMessage = await generateInfoRequest('whatsapp', parsedMessage.messageText, language);
+        if (isNewCustomer(customerIdentifier) && !bypassGathering) {
+          // Initialize new customer
+          initializeCustomer(customerIdentifier, 'whatsapp');
+          incrementMessageCount(customerIdentifier);
 
-          // Send automated response asking for info
-          await sendWhatsAppInfoRequest(phoneNumber, infoRequestMessage);
-          markInfoRequestSent(customerIdentifier);
-
-          console.log(`🤖 Sent info request to new customer: ${phoneNumber}`);
-
-          // Store the automated response in message history
-          storeMessage(
-            phoneNumber,
-            infoRequestMessage,
-            'outgoing',
-            'whatsapp',
-            {
-              senderName: 'BMA Bot',
-              automated: true
-            }
-          );
-        }
-
-        // Don't forward to Google Chat yet - wait for customer info
-        console.log('⏸️ Holding message - waiting for customer info');
-        res.sendStatus(200);
-        return;
-      }
-
-      // Check if we're currently gathering info
-      if (needsInfo(customerIdentifier) && !bypassGathering) {
-        incrementMessageCount(customerIdentifier);
-
-        // Try to parse customer info from their response
-        const parsedInfo = await parseCustomerInfo(parsedMessage.messageText);
-
-        if (parsedInfo.name || parsedInfo.businessName) {
-          // Store what we got
-          storeCustomerInfo(customerIdentifier, {
-            name: parsedInfo.name,
-            businessName: parsedInfo.businessName
-          });
-
-          // Check if we need more info
-          if (parsedInfo.needsMoreInfo) {
+          // Check if we already sent info request
+          if (!wasInfoRequestSent(customerIdentifier)) {
+            // Generate and send info request
             const language = await detectLanguage(parsedMessage.messageText);
-            const followUp = await generateFollowUp(parsedInfo, language);
+            const infoRequestMessage = await generateInfoRequest('whatsapp', parsedMessage.messageText, language);
 
-            if (followUp) {
-              await sendWhatsAppInfoRequest(phoneNumber, followUp);
-              console.log(`🤖 Sent follow-up question to customer: ${phoneNumber}`);
+            // Send automated response asking for info
+            await sendWhatsAppInfoRequest(phoneNumber, infoRequestMessage);
+            markInfoRequestSent(customerIdentifier);
 
-              // Store the follow-up in message history
-              storeMessage(
-                phoneNumber,
-                followUp,
-                'outgoing',
-                'whatsapp',
-                {
-                  senderName: 'BMA Bot',
-                  automated: true
-                }
-              );
+            console.log(`🤖 Sent info request to new customer: ${phoneNumber}`);
 
-              res.sendStatus(200);
-              return;
-            }
+            // Store the automated response in message history
+            storeMessage(
+              phoneNumber,
+              infoRequestMessage,
+              'outgoing',
+              'whatsapp',
+              {
+                senderName: 'BMA Bot',
+                automated: true
+              }
+            );
           }
 
-          // We have enough info - mark as complete
-          updateState(customerIdentifier, 'complete');
-          console.log(`✅ Customer info complete for: ${phoneNumber}`);
+          // Don't forward to Google Chat yet - wait for customer info
+          console.log('⏸️ Holding message - waiting for customer info');
+          res.sendStatus(200);
+          return;
         }
+
+        // Check if we're currently gathering info
+        if (needsInfo(customerIdentifier) && !bypassGathering) {
+          incrementMessageCount(customerIdentifier);
+
+          // Try to parse customer info from their response
+          const parsedInfo = await parseCustomerInfo(parsedMessage.messageText);
+
+          if (parsedInfo.name || parsedInfo.businessName) {
+            // Store what we got
+            storeCustomerInfo(customerIdentifier, {
+              name: parsedInfo.name,
+              businessName: parsedInfo.businessName
+            });
+
+            // Check if we need more info
+            if (parsedInfo.needsMoreInfo) {
+              const language = await detectLanguage(parsedMessage.messageText);
+              const followUp = await generateFollowUp(parsedInfo, language);
+
+              if (followUp) {
+                await sendWhatsAppInfoRequest(phoneNumber, followUp);
+                console.log(`🤖 Sent follow-up question to customer: ${phoneNumber}`);
+
+                // Store the follow-up in message history
+                storeMessage(
+                  phoneNumber,
+                  followUp,
+                  'outgoing',
+                  'whatsapp',
+                  {
+                    senderName: 'BMA Bot',
+                    automated: true
+                  }
+                );
+
+                res.sendStatus(200);
+                return;
+              }
+            }
+
+            // We have enough info - mark as complete
+            updateState(customerIdentifier, 'complete');
+            console.log(`✅ Customer info complete for: ${phoneNumber}`);
+          }
+        }
+      } else {
+        console.log('ℹ️ WhatsApp auto-greeting disabled (ElevenLabs handles greetings)');
       }
 
       // Get customer info if available
