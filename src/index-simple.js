@@ -162,6 +162,7 @@ app.get('/', (req, res) => {
       line: '/webhooks/line',
       googleChat: '/webhooks/google-chat',
       elevenlabs: '/webhooks/elevenlabs',
+      elevenlabsEscalate: '/webhooks/elevenlabs/escalate',
       health: '/health',
       polling: {
         status: '/polling/status',
@@ -576,6 +577,78 @@ app.post('/webhooks/elevenlabs', async (req, res) => {
     console.error('Error processing ElevenLabs webhook:', error);
     // Still return 200 to prevent webhook retries
     res.sendStatus(200);
+  }
+});
+
+// ElevenLabs escalation webhook - immediate alert when agent needs to escalate
+app.post('/webhooks/elevenlabs/escalate', async (req, res) => {
+  try {
+    console.log('🚨 ElevenLabs escalation webhook received');
+    console.log('Request body:', JSON.stringify(req.body, null, 2));
+
+    const {
+      customer_phone,
+      customer_name,
+      issue_summary,
+      escalation_reason,
+      conversation_id,
+      urgency
+    } = req.body;
+
+    // Format escalation alert for Google Chat
+    let alertMessage = '🚨 *Escalation Alert - Customer Needs Assistance*\n\n';
+
+    if (customer_phone) {
+      alertMessage += `📱 *Phone:* ${customer_phone}\n`;
+    }
+    if (customer_name) {
+      alertMessage += `👤 *Name:* ${customer_name}\n`;
+    }
+    if (issue_summary) {
+      alertMessage += `❓ *Issue:* ${issue_summary}\n`;
+    }
+    if (escalation_reason) {
+      alertMessage += `📝 *Reason:* ${escalation_reason}\n`;
+    }
+    if (urgency) {
+      const urgencyEmoji = urgency === 'high' ? '🔴' : urgency === 'medium' ? '🟡' : '🟢';
+      alertMessage += `${urgencyEmoji} *Urgency:* ${urgency}\n`;
+    }
+    if (conversation_id) {
+      alertMessage += `\n🔗 Conversation ID: \`${conversation_id}\`\n`;
+    }
+
+    alertMessage += '\n_Please respond to this customer via WhatsApp._';
+
+    // Send to Google Chat
+    try {
+      await sendMessage(SINGLE_SPACE_ID, alertMessage, {
+        platform: 'elevenlabs',
+        senderName: 'ElevenLabs Escalation',
+        messageType: 'escalation_alert',
+        isUrgent: urgency === 'high'
+      });
+      console.log('✅ Escalation alert sent to Google Chat');
+
+      // Return success response for ElevenLabs
+      res.json({
+        success: true,
+        message: 'Escalation alert sent to support team',
+        escalated_to: 'Google Chat - BMA Support'
+      });
+    } catch (chatError) {
+      console.error('Failed to send escalation to Google Chat:', chatError.message);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to notify support team'
+      });
+    }
+  } catch (error) {
+    console.error('Error processing escalation webhook:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
   }
 });
 
