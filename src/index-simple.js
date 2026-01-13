@@ -16,7 +16,7 @@ const { processGoogleChatWebhook } = require('./webhooks/google-chat');
 const { healthCheck: whatsappHealthCheck, sendWhatsAppMessage, sendInfoRequest: sendWhatsAppInfoRequest, sendMediaMessage: sendWhatsAppMedia } = require('./services/whatsapp-sender');
 const { healthCheck: lineHealthCheck, sendLineMessage, sendInfoRequest: sendLineInfoRequest, sendMediaMessage: sendLineMedia } = require('./services/line-sender');
 const { saveFile, getFileUrl, readFile } = require('./services/file-handler');
-const { getStats, getConversation } = require('./services/conversation-store');
+const { getStats, getConversation, getConversationByUser } = require('./services/conversation-store');
 const { startPolling, stopPolling, getStatus: getPollingStatus, getStats: getPollingStats } = require('./services/google-chat-poller');
 const { storeMessage, getHistory, formatForDisplay } = require('./services/message-history');
 
@@ -595,6 +595,45 @@ app.post('/webhooks/elevenlabs/escalate', async (req, res) => {
       urgency
     } = req.body;
 
+    // Try to find existing conversation for reply link using phone number
+    let replyLink = null;
+
+    if (customer_phone) {
+      // Clean phone number - remove spaces, dashes, and ensure it starts with country code
+      const cleanPhone = customer_phone.replace(/[\s\-()]/g, '');
+      console.log(`Looking up conversation for phone: ${cleanPhone}`);
+
+      // Look up conversation by WhatsApp phone number
+      const conversation = getConversationByUser('whatsapp', cleanPhone);
+      if (conversation) {
+        replyLink = `https://bma-messenger-hub-ooyy.onrender.com/reply/${conversation.id}`;
+        console.log(`Found conversation for reply link: ${conversation.id}`);
+      } else {
+        // Also try without leading + if present, or with it if missing
+        const altPhone = cleanPhone.startsWith('+') ? cleanPhone.slice(1) : `+${cleanPhone}`;
+        const altConversation = getConversationByUser('whatsapp', altPhone);
+        if (altConversation) {
+          replyLink = `https://bma-messenger-hub-ooyy.onrender.com/reply/${altConversation.id}`;
+          console.log(`Found conversation with alt phone format: ${altConversation.id}`);
+        }
+      }
+    }
+
+    // Fallback: look for any recent WhatsApp conversation
+    if (!replyLink) {
+      const conversationStats = getStats();
+      if (conversationStats.activeConversations && conversationStats.activeConversations.length > 0) {
+        const recentConv = conversationStats.activeConversations.find(conv =>
+          conv.platform === 'whatsapp' &&
+          (Date.now() - new Date(conv.lastActivity).getTime()) < 30 * 60 * 1000
+        );
+        if (recentConv) {
+          replyLink = `https://bma-messenger-hub-ooyy.onrender.com/reply/${recentConv.id}`;
+          console.log(`Found recent conversation as fallback: ${recentConv.id}`);
+        }
+      }
+    }
+
     // Format escalation alert for Google Chat
     let alertMessage = '🚨 *Escalation Alert - Customer Needs Assistance*\n\n';
 
@@ -615,10 +654,23 @@ app.post('/webhooks/elevenlabs/escalate', async (req, res) => {
       alertMessage += `${urgencyEmoji} *Urgency:* ${urgency}\n`;
     }
     if (conversation_id) {
-      alertMessage += `\n🔗 Conversation ID: \`${conversation_id}\`\n`;
+      alertMessage += `\n🔗 ElevenLabs Conv: \`${conversation_id}\`\n`;
     }
 
-    alertMessage += '\n_Please respond to this customer via WhatsApp._';
+    // Add reply link(s)
+    alertMessage += '\n---\n';
+    if (replyLink) {
+      alertMessage += `↩️ *Reply via portal:* <${replyLink}|Click here to respond>\n`;
+    }
+    // Always add direct WhatsApp link if we have the phone number
+    if (customer_phone) {
+      const waPhone = customer_phone.replace(/[^\d]/g, ''); // Keep only digits
+      const waLink = `https://wa.me/${waPhone}`;
+      alertMessage += `💬 *Direct WhatsApp:* <${waLink}|Open WhatsApp chat>`;
+    }
+    if (!replyLink && !customer_phone) {
+      alertMessage += '_Check Google Chat for recent customer messages to reply._';
+    }
 
     // Send to Google Chat
     try {
