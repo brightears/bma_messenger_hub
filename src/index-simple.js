@@ -1092,7 +1092,7 @@ app.post('/polling/stop', (req, res) => {
 });
 
 // Reply portal endpoints
-app.get('/reply/:conversationId', (req, res) => {
+app.get('/reply/:conversationId', async (req, res) => {
   const { conversationId } = req.params;
   const conversation = getConversation(conversationId);
 
@@ -1123,10 +1123,64 @@ app.get('/reply/:conversationId', (req, res) => {
   const platformIcon = conversation.platform === 'whatsapp' ? '💬' : '📱';
   const platformName = conversation.platform.toUpperCase();
 
-  // Get 24-hour message history
+  // Get identifier for message history
   const identifier = conversation.platform === 'whatsapp'
     ? (conversation.senderInfo.phoneNumber || conversation.userId)
     : conversation.userId;
+
+  // Fetch ElevenLabs transcript to get agent responses (if WhatsApp)
+  if (conversation.platform === 'whatsapp' && identifier) {
+    const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY || 'sk_42e0e37fe9ef457906b11dce0ac6ea5262a005ec2ce0ca6e';
+    const ELEVENLABS_AGENT_ID = process.env.ELEVENLABS_AGENT_ID || 'agent_8501kesasj5fe8b8rm6nnxcvn4kb';
+
+    try {
+      console.log('Fetching ElevenLabs conversations for reply portal...');
+      // Get recent conversations from ElevenLabs
+      const listResponse = await axios.get(
+        `https://api.elevenlabs.io/v1/convai/conversations?agent_id=${ELEVENLABS_AGENT_ID}&page_size=5`,
+        { headers: { 'xi-api-key': ELEVENLABS_API_KEY } }
+      );
+
+      // Try to get transcript from recent conversations (including done ones)
+      const conversations = listResponse.data?.conversations || [];
+      for (const conv of conversations) {
+        try {
+          const convResponse = await axios.get(
+            `https://api.elevenlabs.io/v1/convai/conversations/${conv.conversation_id}`,
+            { headers: { 'xi-api-key': ELEVENLABS_API_KEY } }
+          );
+
+          const transcript = convResponse.data?.transcript || [];
+          if (transcript.length > 0) {
+            console.log(`Found transcript with ${transcript.length} messages in ${conv.conversation_id}`);
+            // Store agent messages that we don't already have
+            for (const entry of transcript) {
+              if (entry.role === 'agent' && entry.message) {
+                // Check if we already have this message (simple dedup by text)
+                const existingHistory = getHistory(identifier);
+                const alreadyExists = existingHistory.some(m =>
+                  m.direction === 'outgoing' && m.text === entry.message
+                );
+                if (!alreadyExists) {
+                  storeMessage(identifier, entry.message, 'outgoing', 'whatsapp', {
+                    senderName: 'BMAsia Support',
+                    source: 'elevenlabs'
+                  });
+                }
+              }
+            }
+            break; // Only process the most recent conversation with transcript
+          }
+        } catch (err) {
+          console.log(`Could not fetch transcript for ${conv.conversation_id}:`, err.message);
+        }
+      }
+    } catch (err) {
+      console.log('Could not fetch ElevenLabs conversations:', err.message);
+    }
+  }
+
+  // Get 24-hour message history (now includes agent messages from ElevenLabs)
   const messageHistory = getHistory(identifier);
   const formattedHistory = formatForDisplay(messageHistory);
 
