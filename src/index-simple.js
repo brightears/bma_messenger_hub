@@ -795,60 +795,83 @@ app.post('/webhooks/elevenlabs/escalate', async (req, res) => {
       issue_summary,
       escalation_reason,
       conversation_id,
-      urgency
+      urgency,
+      conversation_history
     } = req.body;
 
-    // Fetch ElevenLabs conversation transcript and store agent responses
-    const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY || 'sk_42e0e37fe9ef457906b11dce0ac6ea5262a005ec2ce0ca6e';
-    const ELEVENLABS_AGENT_ID = process.env.ELEVENLABS_AGENT_ID || 'agent_8501kesasj5fe8b8rm6nnxcvn4kb';
+    // Parse and store conversation history from the agent
+    // This is now the primary source of agent messages since transcript isn't available during in-progress calls
+    if (conversation_history && customer_phone) {
+      const cleanPhone = customer_phone.replace(/[\s\-()]/g, '');
+      console.log('Processing conversation_history from escalation...');
 
-    // Find the ElevenLabs conversation ID - either provided directly or find by looking up recent conversations
-    let elevenlabsConversationId = conversation_id;
+      // Parse the conversation history (format: "Customer: [msg]\nAgent: [msg]\n...")
+      const lines = conversation_history.split('\n').filter(line => line.trim());
+      let agentMessagesStored = 0;
 
-    if (!elevenlabsConversationId && customer_phone) {
-      // Try to find recent conversation from ElevenLabs for this agent
-      try {
-        console.log('Looking up recent ElevenLabs conversations...');
-        const listResponse = await axios.get(
-          `https://api.elevenlabs.io/v1/convai/conversations?agent_id=${ELEVENLABS_AGENT_ID}&page_size=5`,
-          { headers: { 'xi-api-key': ELEVENLABS_API_KEY } }
-        );
-        if (listResponse.data?.conversations?.length > 0) {
-          // Get the most recent in-progress or just-completed conversation
-          elevenlabsConversationId = listResponse.data.conversations[0].conversation_id;
-          console.log(`Found recent ElevenLabs conversation: ${elevenlabsConversationId}`);
-        }
-      } catch (err) {
-        console.log('Could not fetch ElevenLabs conversations list:', err.message);
-      }
-    }
-
-    // Fetch the full transcript and store agent messages
-    if (elevenlabsConversationId && customer_phone) {
-      try {
-        console.log(`Fetching transcript for conversation: ${elevenlabsConversationId}`);
-        const convResponse = await axios.get(
-          `https://api.elevenlabs.io/v1/convai/conversations/${elevenlabsConversationId}`,
-          { headers: { 'xi-api-key': ELEVENLABS_API_KEY } }
-        );
-
-        const transcript = convResponse.data?.transcript || [];
-        const cleanPhone = customer_phone.replace(/[\s\-()]/g, '');
-
-        // Store agent messages in our message history
-        let agentMessagesStored = 0;
-        for (const entry of transcript) {
-          if (entry.role === 'agent' && entry.message) {
-            storeMessage(cleanPhone, entry.message, 'outgoing', 'whatsapp', {
+      for (const line of lines) {
+        const trimmedLine = line.trim();
+        if (trimmedLine.startsWith('Agent:')) {
+          const message = trimmedLine.replace(/^Agent:\s*/, '').trim();
+          if (message) {
+            storeMessage(cleanPhone, message, 'outgoing', 'whatsapp', {
               senderName: 'BMAsia Support',
-              source: 'elevenlabs'
+              source: 'elevenlabs_escalation'
             });
             agentMessagesStored++;
           }
         }
-        console.log(`Stored ${agentMessagesStored} agent messages from ElevenLabs transcript`);
-      } catch (err) {
-        console.log('Could not fetch ElevenLabs transcript:', err.message);
+        // Customer messages are already stored when received via WhatsApp webhook
+      }
+      console.log(`Stored ${agentMessagesStored} agent messages from conversation_history`);
+    } else {
+      // Fallback: try to fetch from ElevenLabs API (works for completed conversations)
+      const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY || 'sk_42e0e37fe9ef457906b11dce0ac6ea5262a005ec2ce0ca6e';
+      const ELEVENLABS_AGENT_ID = process.env.ELEVENLABS_AGENT_ID || 'agent_8501kesasj5fe8b8rm6nnxcvn4kb';
+
+      let elevenlabsConversationId = conversation_id;
+
+      if (!elevenlabsConversationId && customer_phone) {
+        try {
+          console.log('Looking up recent ElevenLabs conversations...');
+          const listResponse = await axios.get(
+            `https://api.elevenlabs.io/v1/convai/conversations?agent_id=${ELEVENLABS_AGENT_ID}&page_size=5`,
+            { headers: { 'xi-api-key': ELEVENLABS_API_KEY } }
+          );
+          if (listResponse.data?.conversations?.length > 0) {
+            elevenlabsConversationId = listResponse.data.conversations[0].conversation_id;
+            console.log(`Found recent ElevenLabs conversation: ${elevenlabsConversationId}`);
+          }
+        } catch (err) {
+          console.log('Could not fetch ElevenLabs conversations list:', err.message);
+        }
+      }
+
+      if (elevenlabsConversationId && customer_phone) {
+        try {
+          console.log(`Fetching transcript for conversation: ${elevenlabsConversationId}`);
+          const convResponse = await axios.get(
+            `https://api.elevenlabs.io/v1/convai/conversations/${elevenlabsConversationId}`,
+            { headers: { 'xi-api-key': ELEVENLABS_API_KEY } }
+          );
+
+          const transcript = convResponse.data?.transcript || [];
+          const cleanPhone = customer_phone.replace(/[\s\-()]/g, '');
+
+          let agentMessagesStored = 0;
+          for (const entry of transcript) {
+            if (entry.role === 'agent' && entry.message) {
+              storeMessage(cleanPhone, entry.message, 'outgoing', 'whatsapp', {
+                senderName: 'BMAsia Support',
+                source: 'elevenlabs'
+              });
+              agentMessagesStored++;
+            }
+          }
+          console.log(`Stored ${agentMessagesStored} agent messages from ElevenLabs transcript`);
+        } catch (err) {
+          console.log('Could not fetch ElevenLabs transcript:', err.message);
+        }
       }
     }
 
