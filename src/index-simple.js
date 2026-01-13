@@ -162,6 +162,7 @@ app.get('/', (req, res) => {
       line: '/webhooks/line',
       googleChat: '/webhooks/google-chat',
       elevenlabs: '/webhooks/elevenlabs',
+      elevenlabsLogResponse: '/webhooks/elevenlabs/log-response',
       elevenlabsEscalate: '/webhooks/elevenlabs/escalate',
       health: '/health',
       polling: {
@@ -577,6 +578,51 @@ app.post('/webhooks/elevenlabs', async (req, res) => {
     console.error('Error processing ElevenLabs webhook:', error);
     // Still return 200 to prevent webhook retries
     res.sendStatus(200);
+  }
+});
+
+// ElevenLabs agent response log - real-time logging of agent messages
+app.post('/webhooks/elevenlabs/log-response', async (req, res) => {
+  try {
+    console.log('💬 ElevenLabs agent response log received');
+
+    const {
+      agent_message,
+      customer_phone,
+      conversation_id
+    } = req.body;
+
+    if (!agent_message) {
+      return res.json({ success: true, message: 'No message to log' });
+    }
+
+    // Format agent response for Google Chat
+    let logMessage = `🤖 *Agent:* ${agent_message}`;
+
+    // Add context if available
+    if (customer_phone) {
+      const maskedPhone = customer_phone.length > 4
+        ? `***${customer_phone.slice(-4)}`
+        : customer_phone;
+      logMessage = `📱 ${maskedPhone} | ${logMessage}`;
+    }
+
+    // Send to Google Chat
+    try {
+      await sendMessage(SINGLE_SPACE_ID, logMessage, {
+        platform: 'elevenlabs',
+        senderName: 'BMAsia Agent',
+        messageType: 'agent_response'
+      });
+      console.log('✅ Agent response logged to Google Chat');
+    } catch (chatError) {
+      console.error('Failed to log agent response:', chatError.message);
+    }
+
+    res.json({ success: true, message: 'Response logged' });
+  } catch (error) {
+    console.error('Error logging agent response:', error);
+    res.json({ success: true, message: 'Error handled' });
   }
 });
 
