@@ -232,12 +232,15 @@ app.post('/api/soundtrack/zone-status', async (req, res) => {
       });
 
       console.log('Account query with encoded ID:', queryId);
+      console.log('Using token prefix:', SOUNDTRACK_TOKEN.substring(0, 10) + '...');
       const accountResponse = await axios.post('https://api.soundtrackyourbrand.com/v2', accountQuery, {
         headers: {
           'Authorization': `Basic ${SOUNDTRACK_TOKEN}`,
           'Content-Type': 'application/json'
         }
       });
+
+      console.log('Soundtrack API response:', JSON.stringify(accountResponse.data));
 
       if (accountResponse.data.data?.account) {
         const account = accountResponse.data.data.account;
@@ -268,7 +271,8 @@ app.post('/api/soundtrack/zone-status', async (req, res) => {
         return res.json({
           success: false,
           error: 'Account not found or not accessible. This account may not be managed by BMAsia.',
-          query_id: queryId
+          query_id: queryId,
+          api_response: accountResponse.data
         });
       }
     }
