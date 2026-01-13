@@ -156,11 +156,12 @@ app.get('/health', async (req, res) => {
 app.get('/', (req, res) => {
   res.json({
     message: 'BMA Messenger Hub is running',
-    version: '1.0.0',
+    version: '1.1.0',
     endpoints: {
       whatsapp: '/webhooks/whatsapp',
       line: '/webhooks/line',
       googleChat: '/webhooks/google-chat',
+      elevenlabs: '/webhooks/elevenlabs',
       health: '/health',
       polling: {
         status: '/polling/status',
@@ -506,6 +507,75 @@ app.post('/webhooks/google-chat', async (req, res) => {
     res.status(200).json({
       text: `❌ Error processing message: ${error.message}`
     });
+  }
+});
+
+// ElevenLabs post-call webhook - receives conversation transcripts
+app.post('/webhooks/elevenlabs', async (req, res) => {
+  try {
+    console.log('📞 ElevenLabs webhook received');
+
+    const { type, data } = req.body;
+
+    // Handle post_call_transcription events (contains full conversation)
+    if (type === 'post_call_transcription' && data) {
+      const { agent_id, conversation_id, transcript, metadata, analysis } = data;
+
+      console.log(`ElevenLabs conversation completed: ${conversation_id}`);
+      console.log(`Agent: ${agent_id}, Messages: ${transcript?.length || 0}`);
+
+      // Only process if we have transcript data
+      if (transcript && transcript.length > 0) {
+        // Format the conversation for Google Chat
+        let conversationSummary = '🤖 *ElevenLabs Agent Conversation*\n';
+        conversationSummary += `📞 Conversation ID: \`${conversation_id}\`\n`;
+
+        if (metadata) {
+          const durationSecs = metadata.call_duration_secs || 0;
+          const minutes = Math.floor(durationSecs / 60);
+          const seconds = durationSecs % 60;
+          conversationSummary += `⏱️ Duration: ${minutes}m ${seconds}s\n`;
+        }
+
+        conversationSummary += '\n---\n*Transcript:*\n';
+
+        // Add each message from the transcript
+        for (const turn of transcript) {
+          const role = turn.role === 'agent' ? '🤖 Agent' : '👤 Customer';
+          const message = turn.message || turn.text || '';
+          if (message.trim()) {
+            conversationSummary += `${role}: ${message}\n`;
+          }
+        }
+
+        // Add analysis summary if available
+        if (analysis && analysis.summary) {
+          conversationSummary += `\n---\n📊 *Summary:* ${analysis.summary}`;
+        }
+
+        // Send to Google Chat
+        try {
+          await sendMessage(SINGLE_SPACE_ID, conversationSummary, {
+            platform: 'elevenlabs',
+            senderName: 'ElevenLabs Agent',
+            messageType: 'conversation_transcript'
+          });
+          console.log('✅ ElevenLabs conversation forwarded to Google Chat');
+        } catch (chatError) {
+          console.error('Failed to forward to Google Chat:', chatError.message);
+        }
+      }
+    } else if (type === 'call_initiation_failure' && data) {
+      // Log failed calls
+      console.log(`⚠️ ElevenLabs call initiation failed: ${data.failure_reason || 'Unknown reason'}`);
+    }
+
+    // Always return 200 to acknowledge receipt
+    res.sendStatus(200);
+  } catch (error) {
+    console.error('Error processing ElevenLabs webhook:', error);
+    // Still return 200 to prevent webhook retries
+    res.sendStatus(200);
   }
 });
 
