@@ -699,60 +699,31 @@ app.post('/webhooks/google-chat', async (req, res) => {
 });
 
 // ElevenLabs post-call webhook - receives conversation transcripts
+// NOTE: We don't send these to Google Chat anymore to avoid duplicate messages.
+// The escalation alert already handles notifications, and the reply portal shows full transcript.
 app.post('/webhooks/elevenlabs', async (req, res) => {
   try {
     console.log('📞 ElevenLabs webhook received');
 
     const { type, data } = req.body;
 
-    // Handle post_call_transcription events (contains full conversation)
+    // Handle post_call_transcription events (just log, don't send to Google Chat)
     if (type === 'post_call_transcription' && data) {
-      const { agent_id, conversation_id, transcript, metadata, analysis } = data;
+      const { agent_id, conversation_id, transcript, metadata } = data;
 
       console.log(`ElevenLabs conversation completed: ${conversation_id}`);
       console.log(`Agent: ${agent_id}, Messages: ${transcript?.length || 0}`);
 
-      // Only process if we have transcript data
-      if (transcript && transcript.length > 0) {
-        // Format the conversation for Google Chat
-        let conversationSummary = '🤖 *ElevenLabs Agent Conversation*\n';
-        conversationSummary += `📞 Conversation ID: \`${conversation_id}\`\n`;
-
-        if (metadata) {
-          const durationSecs = metadata.call_duration_secs || 0;
-          const minutes = Math.floor(durationSecs / 60);
-          const seconds = durationSecs % 60;
-          conversationSummary += `⏱️ Duration: ${minutes}m ${seconds}s\n`;
-        }
-
-        conversationSummary += '\n---\n*Transcript:*\n';
-
-        // Add each message from the transcript
-        for (const turn of transcript) {
-          const role = turn.role === 'agent' ? '🤖 Agent' : '👤 Customer';
-          const message = turn.message || turn.text || '';
-          if (message.trim()) {
-            conversationSummary += `${role}: ${message}\n`;
-          }
-        }
-
-        // Add analysis summary if available
-        if (analysis && analysis.summary) {
-          conversationSummary += `\n---\n📊 *Summary:* ${analysis.summary}`;
-        }
-
-        // Send to Google Chat
-        try {
-          await sendMessage(SINGLE_SPACE_ID, conversationSummary, {
-            platform: 'elevenlabs',
-            senderName: 'ElevenLabs Agent',
-            messageType: 'conversation_transcript'
-          });
-          console.log('✅ ElevenLabs conversation forwarded to Google Chat');
-        } catch (chatError) {
-          console.error('Failed to forward to Google Chat:', chatError.message);
-        }
+      // Log duration for analytics
+      if (metadata) {
+        const durationSecs = metadata.call_duration_secs || 0;
+        const minutes = Math.floor(durationSecs / 60);
+        const seconds = durationSecs % 60;
+        console.log(`Duration: ${minutes}m ${seconds}s`);
       }
+
+      // Transcript is available via ElevenLabs API when needed (reply portal fetches it)
+      // No need to send duplicate message to Google Chat
     } else if (type === 'call_initiation_failure' && data) {
       // Log failed calls
       console.log(`⚠️ ElevenLabs call initiation failed: ${data.failure_reason || 'Unknown reason'}`);
@@ -1128,20 +1099,21 @@ app.get('/reply/:conversationId', async (req, res) => {
     ? (conversation.senderInfo.phoneNumber || conversation.userId)
     : conversation.userId;
 
-  // Fetch ElevenLabs transcript to get agent responses (if WhatsApp)
+  // Try to get ElevenLabs transcript for proper message ordering
+  let formattedHistory = [];
+  let usedElevenLabsTranscript = false;
+
   if (conversation.platform === 'whatsapp' && identifier) {
     const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY || 'sk_42e0e37fe9ef457906b11dce0ac6ea5262a005ec2ce0ca6e';
     const ELEVENLABS_AGENT_ID = process.env.ELEVENLABS_AGENT_ID || 'agent_8501kesasj5fe8b8rm6nnxcvn4kb';
 
     try {
       console.log('Fetching ElevenLabs conversations for reply portal...');
-      // Get recent conversations from ElevenLabs
       const listResponse = await axios.get(
         `https://api.elevenlabs.io/v1/convai/conversations?agent_id=${ELEVENLABS_AGENT_ID}&page_size=5`,
         { headers: { 'xi-api-key': ELEVENLABS_API_KEY } }
       );
 
-      // Try to get transcript from recent conversations (including done ones)
       const conversations = listResponse.data?.conversations || [];
       for (const conv of conversations) {
         try {
@@ -1151,25 +1123,31 @@ app.get('/reply/:conversationId', async (req, res) => {
           );
 
           const transcript = convResponse.data?.transcript || [];
+          const startTime = convResponse.data?.metadata?.start_time_unix_secs || (Date.now() / 1000);
+
           if (transcript.length > 0) {
             console.log(`Found transcript with ${transcript.length} messages in ${conv.conversation_id}`);
-            // Store agent messages that we don't already have
-            for (const entry of transcript) {
-              if (entry.role === 'agent' && entry.message) {
-                // Check if we already have this message (simple dedup by text)
-                const existingHistory = getHistory(identifier);
-                const alreadyExists = existingHistory.some(m =>
-                  m.direction === 'outgoing' && m.text === entry.message
-                );
-                if (!alreadyExists) {
-                  storeMessage(identifier, entry.message, 'outgoing', 'whatsapp', {
-                    senderName: 'BMAsia Support',
-                    source: 'elevenlabs'
-                  });
-                }
-              }
-            }
-            break; // Only process the most recent conversation with transcript
+
+            // Use ElevenLabs transcript directly - it has proper chronological order
+            formattedHistory = transcript.map((entry, index) => {
+              // Estimate timestamp based on position (spread over conversation duration)
+              const estimatedTimestamp = (startTime * 1000) + (index * 5000); // 5 sec between messages
+              return {
+                text: entry.message || '',
+                direction: entry.role === 'agent' ? 'outgoing' : 'incoming',
+                timestamp: new Date(estimatedTimestamp).toLocaleTimeString('en-US', {
+                  hour: 'numeric',
+                  minute: '2-digit',
+                  hour12: true,
+                  timeZone: 'Asia/Bangkok'
+                }),
+                senderName: entry.role === 'agent' ? 'BMAsia Support' : (conversation.senderInfo?.name || 'Customer'),
+                files: []
+              };
+            }).filter(m => m.text.trim()); // Remove empty messages
+
+            usedElevenLabsTranscript = true;
+            break;
           }
         } catch (err) {
           console.log(`Could not fetch transcript for ${conv.conversation_id}:`, err.message);
@@ -1180,9 +1158,11 @@ app.get('/reply/:conversationId', async (req, res) => {
     }
   }
 
-  // Get 24-hour message history (now includes agent messages from ElevenLabs)
-  const messageHistory = getHistory(identifier);
-  const formattedHistory = formatForDisplay(messageHistory);
+  // Fall back to stored message history if no ElevenLabs transcript
+  if (!usedElevenLabsTranscript) {
+    const messageHistory = getHistory(identifier);
+    formattedHistory = formatForDisplay(messageHistory);
+  }
 
   res.send(`
     <!DOCTYPE html>
