@@ -940,25 +940,16 @@ app.post('/webhooks/elevenlabs/escalate', async (req, res) => {
       conversation_history
     } = req.body;
 
-    // Parse and store conversation history from the agent
-    // This is now the primary source of agent messages since transcript isn't available during in-progress calls
-    if (conversation_history && customer_phone) {
-      const cleanPhone = normalizePhoneNumber(customer_phone);
-      console.log('Processing conversation_history from escalation...');
+    // Generate a message storage identifier (will be determined after conversation creation)
+    // This ensures messages are stored under the same key used by the reply portal
+    let messageStorageId = customer_phone ? normalizePhoneNumber(customer_phone) : null;
 
-      // Clear any existing outgoing messages (from log-response webhook) to avoid duplicates
-      // We'll re-store them with proper chronological timestamps from conversation_history
-      clearOutgoingMessages(cleanPhone);
-
-      // Get existing messages to find customer timestamps
-      const existingMessages = getHistory(cleanPhone);
-      const customerMessages = existingMessages.filter(m => m.direction === 'incoming');
-
-      // Parse the conversation history (format: "Customer: [msg]\nAgent: [msg]\n...")
+    // Parse conversation_history into messages (even if no phone - we'll store them later)
+    let parsedMessages = [];
+    if (conversation_history) {
+      console.log('Parsing conversation_history from escalation...');
       const lines = conversation_history.split('\n').filter(line => line.trim());
 
-      // Build ordered message list from conversation_history
-      const parsedMessages = [];
       for (const line of lines) {
         const trimmedLine = line.trim();
         if (trimmedLine.startsWith('Customer:')) {
@@ -967,34 +958,7 @@ app.post('/webhooks/elevenlabs/escalate', async (req, res) => {
           parsedMessages.push({ type: 'agent', text: trimmedLine.replace(/^Agent:\s*/, '').trim() });
         }
       }
-
-      // Store agent messages with timestamps interleaved with customer messages
-      let customerIndex = 0;
-      let lastTimestamp = customerMessages.length > 0 ? customerMessages[0].timestamp - 1000 : Date.now() - 60000;
-      let agentMessagesStored = 0;
-
-      for (const msg of parsedMessages) {
-        if (msg.type === 'customer') {
-          // Find matching customer message to get its timestamp
-          if (customerIndex < customerMessages.length) {
-            lastTimestamp = customerMessages[customerIndex].timestamp;
-            customerIndex++;
-          } else {
-            lastTimestamp += 1000; // 1 second gap
-          }
-        } else if (msg.type === 'agent' && msg.text) {
-          // Store agent message with timestamp just after the last message
-          const agentTimestamp = lastTimestamp + 500; // 500ms after previous
-          storeMessage(cleanPhone, msg.text, 'outgoing', 'whatsapp', {
-            senderName: 'BMAsia Support',
-            source: 'elevenlabs_escalation'
-          }, agentTimestamp);
-          lastTimestamp = agentTimestamp;
-          agentMessagesStored++;
-        }
-      }
-
-      console.log(`Stored ${agentMessagesStored} agent messages from conversation_history (chronologically ordered)`);
+      console.log(`Parsed ${parsedMessages.length} messages from conversation_history`);
     } else {
       // Fallback: try to fetch from ElevenLabs API (works for completed conversations)
       const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY || 'sk_42e0e37fe9ef457906b11dce0ac6ea5262a005ec2ce0ca6e';
@@ -1090,7 +1054,7 @@ app.post('/webhooks/elevenlabs/escalate', async (req, res) => {
           conversationId
         );
 
-        conversation = { id: conversationId };
+        conversation = { id: conversationId, userId: cleanPhone };
         console.log(`Created conversation: ${conversationId}`);
       }
     } else {
@@ -1119,14 +1083,48 @@ app.post('/webhooks/elevenlabs/escalate', async (req, res) => {
           conversationId
         );
 
-        conversation = { id: conversationId };
-        console.log(`Created fallback conversation: ${conversationId}`);
+        conversation = { id: conversationId, userId: tempUserId };
+        console.log(`Created fallback conversation: ${conversationId} with userId: ${tempUserId}`);
       }
     }
 
     if (conversation) {
       replyLink = `https://bma-messenger-hub-ooyy.onrender.com/reply/${conversation.id}`;
       console.log(`Reply link: ${replyLink}`);
+
+      // Now store the parsed messages using the conversation's userId as the storage key
+      // This ensures messages are stored under the same key the reply portal will use
+      const storageKey = conversation.userId || (customer_phone ? normalizePhoneNumber(customer_phone) : `escalation_${Date.now()}`);
+
+      if (parsedMessages.length > 0) {
+        console.log(`Storing ${parsedMessages.length} messages under key: ${storageKey}`);
+
+        // Clear any existing messages to avoid duplicates
+        clearOutgoingMessages(storageKey);
+
+        // Store all messages with proper timestamps for chronological order
+        let baseTimestamp = Date.now() - (parsedMessages.length * 1000); // Start 1 sec per message in past
+        let messagesStored = 0;
+
+        for (const msg of parsedMessages) {
+          if (msg.text) {
+            storeMessage(
+              storageKey,
+              msg.text,
+              msg.type === 'customer' ? 'incoming' : 'outgoing',
+              'whatsapp',
+              {
+                senderName: msg.type === 'customer' ? (customer_name || 'Customer') : 'BMAsia Support',
+                source: 'elevenlabs_escalation'
+              },
+              baseTimestamp
+            );
+            baseTimestamp += 1000; // 1 second between messages
+            messagesStored++;
+          }
+        }
+        console.log(`✅ Stored ${messagesStored} messages from conversation_history`);
+      }
     }
 
     // Format escalation alert for Google Chat
