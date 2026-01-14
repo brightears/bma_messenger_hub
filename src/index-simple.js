@@ -460,7 +460,25 @@ app.post('/api/customer-lookup', async (req, res) => {
       });
     }
 
-    const profile = await getProfile(phone);
+    let profile = await getProfile(phone);
+
+    // If not found, try adding Thailand country code (66)
+    if (!profile) {
+      const normalized = phone.replace(/[\s\-()]/g, '').replace(/^\+/, '');
+
+      // Thai mobile numbers: 8xxxxxxxx or 9xxxxxxxx (9 digits without country code)
+      if (normalized.length === 9 && (normalized.startsWith('8') || normalized.startsWith('9'))) {
+        console.log(`📋 Trying with Thailand country code: 66${normalized}`);
+        profile = await getProfile(`66${normalized}`);
+      }
+
+      // Also try if phone is 10 digits starting with 0 (local format: 08xxxxxxxx)
+      if (!profile && normalized.length === 10 && normalized.startsWith('0')) {
+        const withCountryCode = `66${normalized.substring(1)}`;
+        console.log(`📋 Trying with Thailand country code: ${withCountryCode}`);
+        profile = await getProfile(withCountryCode);
+      }
+    }
 
     if (profile && (profile.name || profile.company || profile.email)) {
       console.log(`✅ Found returning customer: ${profile.name || phone}`);
