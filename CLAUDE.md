@@ -4,7 +4,7 @@
 
 This document provides Claude Code-specific instructions and best practices for developing the BMAsia Messenger Hub platform.
 
-## Current Status (v1.2-stable-line-ai-fix)
+## Current Status (v1.3-whatsapp-reply-working)
 
 ### Working Features
 - ✅ Single-space routing (BMA Chat Support)
@@ -15,6 +15,70 @@ This document provides Claude Code-specific instructions and best practices for 
 - ✅ Reply portal with conversation tracking
 - ✅ WhatsApp & LINE webhook integration
 - ✅ ElevenLabs Conversational AI integration for WhatsApp
+- ✅ **WhatsApp reply from Google Chat portal** (FROZEN - DO NOT MODIFY)
+
+---
+
+## 🔒 FROZEN: WhatsApp Reply Flow (DO NOT MODIFY)
+
+**Status: WORKING AS OF 2026-01-14**
+
+This section documents the working WhatsApp reply flow. **DO NOT MODIFY** any of these components without explicit user approval.
+
+### How It Works
+
+1. **Customer → WhatsApp → ElevenLabs Agent**
+   - Customer sends WhatsApp message
+   - ElevenLabs Conversational AI handles the conversation
+   - ElevenLabs stores conversation with WhatsApp metadata
+
+2. **Agent Escalation → Google Chat**
+   - When AI needs to escalate, it calls `escalate_to_team` webhook
+   - Our webhook (`/webhooks/elevenlabs/escalate`) receives the escalation
+   - **CRITICAL**: We fetch the customer's phone from ElevenLabs API (most recent conversation metadata)
+   - Escalation alert posted to Google Chat with "Click here to respond" link
+
+3. **Team Reply → Customer WhatsApp**
+   - Team clicks reply link → opens reply portal
+   - Portal shows full conversation history
+   - Team types reply → POST to `/reply/:conversationId`
+   - Message sent via WhatsApp Business API to customer's actual phone number
+
+### Critical Code Paths (DO NOT MODIFY)
+
+| File | Lines | Function |
+|------|-------|----------|
+| `src/index-simple.js` | 967-998 | Phone lookup from ElevenLabs API |
+| `src/index-simple.js` | 1084-1145 | Conversation creation with phoneNumber |
+| `src/index-simple.js` | 1864-1988 | Reply endpoint |
+| `src/services/whatsapp-sender.js` | 45-123 | sendWhatsAppMessage |
+| `src/services/conversation-store.js` | All | Conversation storage |
+| `src/services/message-history.js` | All | Message history storage |
+
+### Environment Variables Required
+```
+WHATSAPP_API_URL=https://graph.facebook.com/v18.0
+WHATSAPP_ACCESS_TOKEN=<Meta access token>
+WHATSAPP_PHONE_NUMBER_ID=742462142273418
+ELEVENLABS_API_KEY=<ElevenLabs API key>
+ELEVENLABS_AGENT_ID=agent_8501kesasj5fe8b8rm6nnxcvn4kb
+```
+
+### Why Phone Lookup Works
+ElevenLabs stores WhatsApp metadata in conversation:
+```json
+{
+  "metadata": {
+    "whatsapp": {
+      "whatsapp_user_id": "66856644142"  // Customer's phone
+    }
+  }
+}
+```
+
+Our escalation handler fetches the most recent conversation and extracts this phone number, ensuring replies always go to the correct WhatsApp number.
+
+---
 
 ## Sub-Agents Usage
 
