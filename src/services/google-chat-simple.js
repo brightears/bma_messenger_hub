@@ -1,5 +1,6 @@
 const { google } = require('googleapis');
 const { storeConversation } = require('./conversation-store');
+const { normalizePhoneNumber } = require('./message-history');
 
 class GoogleChatService {
   constructor() {
@@ -103,15 +104,21 @@ class GoogleChatService {
 
         // Actually store the conversation with the predetermined ID
         // Include customer info in senderInfo for conversation store
+        // Normalize phone number for WhatsApp to ensure consistent lookups
+        const normalizedUserId = senderInfo.platform === 'whatsapp'
+          ? normalizePhoneNumber(senderInfo.senderId)
+          : senderInfo.senderId;
+
         const enrichedSenderInfo = {
           ...senderInfo,
+          phoneNumber: normalizedUserId, // Store normalized phone for lookups
           customerName: senderInfo.customerName,
           customerBusiness: senderInfo.customerBusiness
         };
 
         storeConversation(
           senderInfo.platform,
-          senderInfo.senderId,
+          normalizedUserId,  // Use normalized ID for consistent lookups
           threadId,
           spaceId,
           enrichedSenderInfo,

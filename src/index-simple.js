@@ -18,7 +18,7 @@ const { healthCheck: lineHealthCheck, sendLineMessage, sendInfoRequest: sendLine
 const { saveFile, getFileUrl, readFile } = require('./services/file-handler');
 const { getStats, getConversation, getConversationByUser } = require('./services/conversation-store');
 const { startPolling, stopPolling, getStatus: getPollingStatus, getStats: getPollingStats } = require('./services/google-chat-poller');
-const { storeMessage, getHistory, formatForDisplay } = require('./services/message-history');
+const { storeMessage, getHistory, formatForDisplay, normalizePhoneNumber } = require('./services/message-history');
 
 // Customer info and AI gathering services
 const {
@@ -386,8 +386,9 @@ app.post('/webhooks/whatsapp', async (req, res) => {
     if (parsedMessage && isValidMessage(parsedMessage)) {
       console.log('Parsed WhatsApp message:', parsedMessage);
 
-      // Store incoming message in history
-      const phoneNumber = parsedMessage.phoneNumber || parsedMessage.senderId;
+      // Store incoming message in history (normalize phone for consistent storage)
+      const rawPhone = parsedMessage.phoneNumber || parsedMessage.senderId;
+      const phoneNumber = normalizePhoneNumber(rawPhone);
       if (phoneNumber) {
         storeMessage(
           phoneNumber,
@@ -738,7 +739,9 @@ app.post('/webhooks/elevenlabs', async (req, res) => {
   }
 });
 
-// ElevenLabs agent response log - real-time logging of agent messages
+// ElevenLabs agent response log - stores agent messages in history
+// NOTE: Does NOT send to Google Chat to avoid duplicate messages
+// Google Chat only receives: Customer message (from /webhooks/whatsapp) + Escalation alert
 app.post('/webhooks/elevenlabs/log-response', async (req, res) => {
   try {
     console.log('💬 ElevenLabs agent response log received');
@@ -753,30 +756,28 @@ app.post('/webhooks/elevenlabs/log-response', async (req, res) => {
       return res.json({ success: true, message: 'No message to log' });
     }
 
-    // Format agent response for Google Chat
-    let logMessage = `🤖 *Agent:* ${agent_message}`;
-
-    // Add context if available
+    // Store agent message in history for reply portal (with normalized phone)
     if (customer_phone) {
-      const maskedPhone = customer_phone.length > 4
-        ? `***${customer_phone.slice(-4)}`
-        : customer_phone;
-      logMessage = `📱 ${maskedPhone} | ${logMessage}`;
+      const normalizedPhone = normalizePhoneNumber(customer_phone);
+      if (normalizedPhone) {
+        storeMessage(
+          normalizedPhone,
+          agent_message,
+          'outgoing',
+          'whatsapp',
+          {
+            senderName: 'BMAsia Support',
+            source: 'elevenlabs_log_response',
+            conversationId: conversation_id
+          }
+        );
+        console.log(`✅ Agent message stored for ${normalizedPhone}`);
+      }
+    } else {
+      console.log('⚠️ No customer_phone provided, cannot store agent message');
     }
 
-    // Send to Google Chat
-    try {
-      await sendMessage(SINGLE_SPACE_ID, logMessage, {
-        platform: 'elevenlabs',
-        senderName: 'BMAsia Agent',
-        messageType: 'agent_response'
-      });
-      console.log('✅ Agent response logged to Google Chat');
-    } catch (chatError) {
-      console.error('Failed to log agent response:', chatError.message);
-    }
-
-    res.json({ success: true, message: 'Response logged' });
+    res.json({ success: true, message: 'Response stored' });
   } catch (error) {
     console.error('Error logging agent response:', error);
     res.json({ success: true, message: 'Error handled' });
@@ -802,7 +803,7 @@ app.post('/webhooks/elevenlabs/escalate', async (req, res) => {
     // Parse and store conversation history from the agent
     // This is now the primary source of agent messages since transcript isn't available during in-progress calls
     if (conversation_history && customer_phone) {
-      const cleanPhone = customer_phone.replace(/[\s\-()]/g, '');
+      const cleanPhone = normalizePhoneNumber(customer_phone);
       console.log('Processing conversation_history from escalation...');
 
       // Parse the conversation history (format: "Customer: [msg]\nAgent: [msg]\n...")
@@ -856,7 +857,7 @@ app.post('/webhooks/elevenlabs/escalate', async (req, res) => {
           );
 
           const transcript = convResponse.data?.transcript || [];
-          const cleanPhone = customer_phone.replace(/[\s\-()]/g, '');
+          const cleanPhone = normalizePhoneNumber(customer_phone);
 
           let agentMessagesStored = 0;
           for (const entry of transcript) {
@@ -879,23 +880,15 @@ app.post('/webhooks/elevenlabs/escalate', async (req, res) => {
     let replyLink = null;
 
     if (customer_phone) {
-      // Clean phone number - remove spaces, dashes, and ensure it starts with country code
-      const cleanPhone = customer_phone.replace(/[\s\-()]/g, '');
+      // Normalize phone number for consistent lookup
+      const cleanPhone = normalizePhoneNumber(customer_phone);
       console.log(`Looking up conversation for phone: ${cleanPhone}`);
 
-      // Look up conversation by WhatsApp phone number
+      // Look up conversation by WhatsApp phone number (normalized - no + prefix)
       const conversation = getConversationByUser('whatsapp', cleanPhone);
       if (conversation) {
         replyLink = `https://bma-messenger-hub-ooyy.onrender.com/reply/${conversation.id}`;
         console.log(`Found conversation for reply link: ${conversation.id}`);
-      } else {
-        // Also try without leading + if present, or with it if missing
-        const altPhone = cleanPhone.startsWith('+') ? cleanPhone.slice(1) : `+${cleanPhone}`;
-        const altConversation = getConversationByUser('whatsapp', altPhone);
-        if (altConversation) {
-          replyLink = `https://bma-messenger-hub-ooyy.onrender.com/reply/${altConversation.id}`;
-          console.log(`Found conversation with alt phone format: ${altConversation.id}`);
-        }
       }
     }
 
@@ -1117,9 +1110,9 @@ app.get('/reply/:conversationId', async (req, res) => {
   const platformIcon = conversation.platform === 'whatsapp' ? '💬' : '📱';
   const platformName = conversation.platform.toUpperCase();
 
-  // Get identifier for message history
+  // Get identifier for message history (normalize WhatsApp phone for consistent lookup)
   const identifier = conversation.platform === 'whatsapp'
-    ? (conversation.senderInfo.phoneNumber || conversation.userId)
+    ? normalizePhoneNumber(conversation.senderInfo.phoneNumber || conversation.userId)
     : conversation.userId;
 
   // Try to get ElevenLabs transcript for proper message ordering

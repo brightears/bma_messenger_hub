@@ -3,6 +3,21 @@
  * Stores message history for 24 hours to provide conversation context
  */
 
+/**
+ * Normalize phone number to a consistent format for storage and lookup
+ * Removes all non-digit characters and leading + for consistent keys
+ * @param {string} phone - Phone number in any format
+ * @returns {string|null} Normalized phone number or null
+ */
+function normalizePhoneNumber(phone) {
+  if (!phone) return null;
+  // Remove all non-digit characters (spaces, dashes, parentheses)
+  let normalized = phone.replace(/[\s\-()]/g, '');
+  // Remove leading + for consistent storage
+  normalized = normalized.replace(/^\+/, '');
+  return normalized || null;
+}
+
 class MessageHistory {
   constructor() {
     // Map: phoneNumber/userId -> array of messages
@@ -161,7 +176,7 @@ class MessageHistory {
       }),
       senderName: msg.direction === 'incoming'
         ? (msg.metadata.senderName || 'Customer')
-        : 'You',
+        : (msg.metadata.senderName || 'BMAsia Support'),
       files: msg.metadata.files || []
     }));
   }
@@ -172,6 +187,7 @@ const messageHistory = new MessageHistory();
 
 module.exports = {
   messageHistory,
+  normalizePhoneNumber,
   storeMessage: (identifier, text, direction, platform, metadata) =>
     messageHistory.storeMessage(identifier, text, direction, platform, metadata),
   getHistory: (identifier) => messageHistory.getHistory(identifier),
