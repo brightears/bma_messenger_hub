@@ -940,9 +940,33 @@ app.post('/webhooks/elevenlabs/escalate', async (req, res) => {
       conversation_history
     } = req.body;
 
+    // Try to get phone number - either from webhook or from ElevenLabs conversation API
+    let actualPhone = customer_phone;
+
+    // If no phone provided but we have conversation_id, fetch from ElevenLabs API
+    if (!actualPhone && conversation_id) {
+      console.log('No customer_phone provided - fetching from ElevenLabs conversation API...');
+      const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY || 'sk_42e0e37fe9ef457906b11dce0ac6ea5262a005ec2ce0ca6e';
+
+      try {
+        const convResponse = await axios.get(
+          `https://api.elevenlabs.io/v1/convai/conversations/${conversation_id}`,
+          { headers: { 'xi-api-key': ELEVENLABS_API_KEY } }
+        );
+
+        const whatsappUserId = convResponse.data?.metadata?.whatsapp?.whatsapp_user_id;
+        if (whatsappUserId) {
+          actualPhone = whatsappUserId;
+          console.log(`✅ Found phone from ElevenLabs: ${actualPhone}`);
+        }
+      } catch (err) {
+        console.log('Could not fetch phone from ElevenLabs:', err.message);
+      }
+    }
+
     // Generate a message storage identifier (will be determined after conversation creation)
     // This ensures messages are stored under the same key used by the reply portal
-    let messageStorageId = customer_phone ? normalizePhoneNumber(customer_phone) : null;
+    let messageStorageId = actualPhone ? normalizePhoneNumber(actualPhone) : null;
 
     // Parse conversation_history into messages (even if no phone - we'll store them later)
     let parsedMessages = [];
@@ -1012,9 +1036,9 @@ app.post('/webhooks/elevenlabs/escalate', async (req, res) => {
 
     // Save customer profile if we have any customer info
     // This allows us to remember returning customers
-    if (customer_phone && (customer_name || customer_company || customer_email)) {
+    if (actualPhone && (customer_name || customer_company || customer_email)) {
       console.log('💾 Saving customer profile from escalation...');
-      await saveProfile(customer_phone, {
+      await saveProfile(actualPhone, {
         name: customer_name,
         company: customer_company,
         email: customer_email
@@ -1025,8 +1049,8 @@ app.post('/webhooks/elevenlabs/escalate', async (req, res) => {
     let replyLink = null;
     let conversation = null;
 
-    if (customer_phone) {
-      const cleanPhone = normalizePhoneNumber(customer_phone);
+    if (actualPhone) {
+      const cleanPhone = normalizePhoneNumber(actualPhone);
       console.log(`Looking up conversation for phone: ${cleanPhone}`);
 
       // Look up existing conversation
@@ -1058,8 +1082,8 @@ app.post('/webhooks/elevenlabs/escalate', async (req, res) => {
         console.log(`Created conversation: ${conversationId}`);
       }
     } else {
-      // No phone provided - try to find most recent WhatsApp conversation
-      console.log('No customer_phone provided - looking up most recent WhatsApp conversation');
+      // No phone provided (and couldn't get from ElevenLabs) - try to find most recent WhatsApp conversation
+      console.log('No phone available - looking up most recent WhatsApp conversation');
       conversation = getMostRecentConversation('whatsapp');
 
       // If still no conversation found, CREATE one anyway so reply link is always available
@@ -1094,7 +1118,7 @@ app.post('/webhooks/elevenlabs/escalate', async (req, res) => {
 
       // Now store the parsed messages using the conversation's userId as the storage key
       // This ensures messages are stored under the same key the reply portal will use
-      const storageKey = conversation.userId || (customer_phone ? normalizePhoneNumber(customer_phone) : `escalation_${Date.now()}`);
+      const storageKey = conversation.userId || (actualPhone ? normalizePhoneNumber(actualPhone) : `escalation_${Date.now()}`);
 
       if (parsedMessages.length > 0) {
         console.log(`Storing ${parsedMessages.length} messages under key: ${storageKey}`);
@@ -1136,8 +1160,8 @@ app.post('/webhooks/elevenlabs/escalate', async (req, res) => {
     if (customer_company) {
       alertMessage += `🏢 *Company:* ${customer_company}\n`;
     }
-    if (customer_phone) {
-      alertMessage += `📱 *Phone:* ${customer_phone}\n`;
+    if (actualPhone) {
+      alertMessage += `📱 *Phone:* ${actualPhone}\n`;
     }
     if (customer_email) {
       alertMessage += `📧 *Email:* ${customer_email}\n`;
