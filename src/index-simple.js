@@ -19,6 +19,7 @@ const { saveFile, getFileUrl, readFile } = require('./services/file-handler');
 const { getStats, getConversation, getConversationByUser } = require('./services/conversation-store');
 const { startPolling, stopPolling, getStatus: getPollingStatus, getStats: getPollingStats } = require('./services/google-chat-poller');
 const { storeMessage, getHistory, formatForDisplay, normalizePhoneNumber } = require('./services/message-history');
+const { getProfile, saveProfile, getStats: getProfileStats } = require('./services/customer-profiles');
 
 // Customer info and AI gathering services
 const {
@@ -358,6 +359,91 @@ app.post('/api/soundtrack/zone-status', async (req, res) => {
       error: `Failed to query Soundtrack API: ${error.message}`
     });
   }
+});
+
+// Customer Profile API - Get customer info by phone (for ElevenLabs agent)
+app.get('/api/customer/:phone', (req, res) => {
+  try {
+    const { phone } = req.params;
+    console.log(`📋 Customer profile lookup request for: ${phone}`);
+
+    const profile = getProfile(phone);
+
+    if (profile && (profile.name || profile.company || profile.email)) {
+      console.log(`✅ Found customer profile for ${phone}`);
+      return res.json({
+        success: true,
+        found: true,
+        customer: {
+          name: profile.name || null,
+          company: profile.company || null,
+          email: profile.email || null,
+          lastSeen: profile.lastSeen ? new Date(profile.lastSeen).toISOString() : null
+        }
+      });
+    }
+
+    console.log(`📋 No profile found for ${phone}`);
+    return res.json({
+      success: true,
+      found: false,
+      customer: null
+    });
+
+  } catch (error) {
+    console.error('Customer profile lookup error:', error.message);
+    return res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Customer Profile API - Save/update customer info
+app.post('/api/customer/:phone', (req, res) => {
+  try {
+    const { phone } = req.params;
+    const { name, company, email } = req.body;
+
+    console.log(`💾 Save customer profile request for: ${phone}`);
+    console.log(`   Data: name=${name}, company=${company}, email=${email}`);
+
+    const profile = saveProfile(phone, { name, company, email });
+
+    if (profile) {
+      console.log(`✅ Customer profile saved for ${phone}`);
+      return res.json({
+        success: true,
+        message: 'Customer profile saved',
+        customer: {
+          name: profile.name || null,
+          company: profile.company || null,
+          email: profile.email || null
+        }
+      });
+    }
+
+    return res.status(400).json({
+      success: false,
+      error: 'Invalid phone number'
+    });
+
+  } catch (error) {
+    console.error('Customer profile save error:', error.message);
+    return res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Customer Profile API - Get stats (admin)
+app.get('/api/customer-stats', (req, res) => {
+  const stats = getProfileStats();
+  res.json({
+    success: true,
+    stats
+  });
 });
 
 // WhatsApp webhook verification
@@ -878,6 +964,17 @@ app.post('/webhooks/elevenlabs/escalate', async (req, res) => {
           console.log('Could not fetch ElevenLabs transcript:', err.message);
         }
       }
+    }
+
+    // Save customer profile if we have any customer info
+    // This allows us to remember returning customers
+    if (customer_phone && (customer_name || customer_company || customer_email)) {
+      console.log('💾 Saving customer profile from escalation...');
+      saveProfile(customer_phone, {
+        name: customer_name,
+        company: customer_company,
+        email: customer_email
+      });
     }
 
     // Try to find existing conversation for reply link using phone number
