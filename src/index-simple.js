@@ -362,12 +362,12 @@ app.post('/api/soundtrack/zone-status', async (req, res) => {
 });
 
 // Customer Profile API - Get customer info by phone (for ElevenLabs agent)
-app.get('/api/customer/:phone', (req, res) => {
+app.get('/api/customer/:phone', async (req, res) => {
   try {
     const { phone } = req.params;
     console.log(`📋 Customer profile lookup request for: ${phone}`);
 
-    const profile = getProfile(phone);
+    const profile = await getProfile(phone);
 
     if (profile && (profile.name || profile.company || profile.email)) {
       console.log(`✅ Found customer profile for ${phone}`);
@@ -400,7 +400,7 @@ app.get('/api/customer/:phone', (req, res) => {
 });
 
 // Customer Profile API - Save/update customer info
-app.post('/api/customer/:phone', (req, res) => {
+app.post('/api/customer/:phone', async (req, res) => {
   try {
     const { phone } = req.params;
     const { name, company, email } = req.body;
@@ -408,7 +408,7 @@ app.post('/api/customer/:phone', (req, res) => {
     console.log(`💾 Save customer profile request for: ${phone}`);
     console.log(`   Data: name=${name}, company=${company}, email=${email}`);
 
-    const profile = saveProfile(phone, { name, company, email });
+    const profile = await saveProfile(phone, { name, company, email });
 
     if (profile) {
       console.log(`✅ Customer profile saved for ${phone}`);
@@ -438,8 +438,8 @@ app.post('/api/customer/:phone', (req, res) => {
 });
 
 // Customer Profile API - Get stats (admin)
-app.get('/api/customer-stats', (req, res) => {
-  const stats = getProfileStats();
+app.get('/api/customer-stats', async (req, res) => {
+  const stats = await getProfileStats();
   res.json({
     success: true,
     stats
@@ -447,7 +447,7 @@ app.get('/api/customer-stats', (req, res) => {
 });
 
 // Customer Profile Lookup API - POST version for ElevenLabs tool
-app.post('/api/customer-lookup', (req, res) => {
+app.post('/api/customer-lookup', async (req, res) => {
   try {
     const { phone } = req.body;
     console.log(`📋 Customer profile lookup (POST) for: ${phone}`);
@@ -460,7 +460,7 @@ app.post('/api/customer-lookup', (req, res) => {
       });
     }
 
-    const profile = getProfile(phone);
+    const profile = await getProfile(phone);
 
     if (profile && (profile.name || profile.company || profile.email)) {
       console.log(`✅ Found returning customer: ${profile.name || phone}`);
@@ -1020,7 +1020,7 @@ app.post('/webhooks/elevenlabs/escalate', async (req, res) => {
     // This allows us to remember returning customers
     if (customer_phone && (customer_name || customer_company || customer_email)) {
       console.log('💾 Saving customer profile from escalation...');
-      saveProfile(customer_phone, {
+      await saveProfile(customer_phone, {
         name: customer_name,
         company: customer_company,
         email: customer_email
