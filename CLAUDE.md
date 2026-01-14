@@ -10,12 +10,13 @@ This document provides Claude Code-specific instructions and best practices for 
 - ✅ Single-space routing (BMA Chat Support)
 - ✅ AI information gathering (customer name & company) - **LINE only** (WhatsApp handled by ElevenLabs)
 - ✅ 24-hour message history storage
-- ✅ Customer info persistence (24 hours)
+- ✅ Customer info persistence (PostgreSQL - permanent)
 - ✅ Language auto-detection (Thai/English)
 - ✅ Reply portal with conversation tracking
 - ✅ WhatsApp & LINE webhook integration
 - ✅ ElevenLabs Conversational AI integration for WhatsApp
 - ✅ **WhatsApp reply from Google Chat portal** (FROZEN - DO NOT MODIFY)
+- ✅ **Customer profile lookup - agent recognizes returning customers** (FROZEN - DO NOT MODIFY)
 
 ---
 
@@ -77,6 +78,64 @@ ElevenLabs stores WhatsApp metadata in conversation:
 ```
 
 Our escalation handler fetches the most recent conversation and extracts this phone number, ensuring replies always go to the correct WhatsApp number.
+
+---
+
+## 🔒 FROZEN: Customer Profile Lookup (DO NOT MODIFY)
+
+**Status: WORKING AS OF 2026-01-14**
+
+The ElevenLabs agent recognizes returning customers by name on their FIRST message. **DO NOT MODIFY** these components:
+
+### How It Works
+1. Customer sends "Hi" on WhatsApp
+2. ElevenLabs agent calls `get_customer_profile` tool
+3. Tool sends `conversation_id` (auto-populated by ElevenLabs)
+4. Our endpoint (`/api/customer-lookup`) receives the conversation_id
+5. Endpoint fetches phone from ElevenLabs API: `metadata.whatsapp.whatsapp_user_id`
+6. Looks up profile in PostgreSQL → returns customer name
+7. Agent greets: "Hi Norbert! Welcome back to BMAsia."
+
+### Critical Code Path (DO NOT MODIFY)
+
+| File | Lines | Function |
+|------|-------|----------|
+| `src/index-simple.js` | 450-530 | `/api/customer-lookup` endpoint |
+| `src/services/customer-profiles.js` | All | PostgreSQL profile storage |
+
+### Key Implementation Details
+
+```javascript
+// Endpoint accepts conversation_id from ElevenLabs
+app.post('/api/customer-lookup', async (req, res) => {
+  let { phone, conversation_id } = req.body;
+
+  // If conversation_id provided, fetch phone from ElevenLabs API
+  if (!phone && conversation_id) {
+    const convResponse = await axios.get(
+      `https://api.elevenlabs.io/v1/convai/conversations/${conversation_id}`,
+      { headers: { 'xi-api-key': ELEVENLABS_API_KEY } }
+    );
+    phone = convResponse.data?.metadata?.whatsapp?.whatsapp_user_id;
+  }
+
+  // Look up profile (with Thailand country code fallback)
+  let profile = await getProfile(phone);
+  // ...
+});
+```
+
+### DO NOT
+- Change the `/api/customer-lookup` endpoint logic
+- Remove the conversation_id → phone lookup
+- Remove the Thailand country code (66) fallback
+- Modify the PostgreSQL customer_profiles table schema
+
+### Environment Variables Required
+```
+ELEVENLABS_API_KEY=<ElevenLabs API key>
+DATABASE_URL=<PostgreSQL connection string>
+```
 
 ---
 
