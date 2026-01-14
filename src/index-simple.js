@@ -18,7 +18,7 @@ const { healthCheck: lineHealthCheck, sendLineMessage, sendInfoRequest: sendLine
 const { saveFile, getFileUrl, readFile } = require('./services/file-handler');
 const { getStats, getConversation, getConversationByUser, storeConversation } = require('./services/conversation-store');
 const { startPolling, stopPolling, getStatus: getPollingStatus, getStats: getPollingStats } = require('./services/google-chat-poller');
-const { storeMessage, getHistory, formatForDisplay, normalizePhoneNumber } = require('./services/message-history');
+const { storeMessage, getHistory, formatForDisplay, normalizePhoneNumber, clearOutgoingMessages } = require('./services/message-history');
 const { getProfile, saveProfile, getStats: getProfileStats } = require('./services/customer-profiles');
 
 // Customer info and AI gathering services
@@ -945,6 +945,10 @@ app.post('/webhooks/elevenlabs/escalate', async (req, res) => {
     if (conversation_history && customer_phone) {
       const cleanPhone = normalizePhoneNumber(customer_phone);
       console.log('Processing conversation_history from escalation...');
+
+      // Clear any existing outgoing messages (from log-response webhook) to avoid duplicates
+      // We'll re-store them with proper chronological timestamps from conversation_history
+      clearOutgoingMessages(cleanPhone);
 
       // Get existing messages to find customer timestamps
       const existingMessages = getHistory(cleanPhone);

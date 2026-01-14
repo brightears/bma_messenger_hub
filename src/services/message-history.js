@@ -144,6 +144,29 @@ class MessageHistory {
   }
 
   /**
+   * Clear outgoing messages for a user
+   * Used to remove agent messages before re-storing with proper timestamps
+   * @param {string} identifier - Phone number or user ID
+   * @returns {number} Number of messages removed
+   */
+  clearOutgoingMessages(identifier) {
+    if (!this.messages.has(identifier)) {
+      return 0;
+    }
+
+    const messageHistory = this.messages.get(identifier);
+    const incomingOnly = messageHistory.filter(msg => msg.direction === 'incoming');
+    const removed = messageHistory.length - incomingOnly.length;
+
+    if (removed > 0) {
+      this.messages.set(identifier, incomingOnly);
+      console.log(`🗑️ Cleared ${removed} outgoing messages for ${identifier}`);
+    }
+
+    return removed;
+  }
+
+  /**
    * Get statistics about stored messages
    * @returns {Object} Statistics
    */
@@ -191,9 +214,10 @@ const messageHistory = new MessageHistory();
 module.exports = {
   messageHistory,
   normalizePhoneNumber,
-  storeMessage: (identifier, text, direction, platform, metadata) =>
-    messageHistory.storeMessage(identifier, text, direction, platform, metadata),
+  storeMessage: (identifier, text, direction, platform, metadata, customTimestamp) =>
+    messageHistory.storeMessage(identifier, text, direction, platform, metadata, customTimestamp),
   getHistory: (identifier) => messageHistory.getHistory(identifier),
   getStats: () => messageHistory.getStats(),
-  formatForDisplay: (messages) => messageHistory.formatForDisplay(messages)
+  formatForDisplay: (messages) => messageHistory.formatForDisplay(messages),
+  clearOutgoingMessages: (identifier) => messageHistory.clearOutgoingMessages(identifier)
 };
