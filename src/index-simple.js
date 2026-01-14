@@ -16,7 +16,7 @@ const { processGoogleChatWebhook } = require('./webhooks/google-chat');
 const { healthCheck: whatsappHealthCheck, sendWhatsAppMessage, sendInfoRequest: sendWhatsAppInfoRequest, sendMediaMessage: sendWhatsAppMedia } = require('./services/whatsapp-sender');
 const { healthCheck: lineHealthCheck, sendLineMessage, sendInfoRequest: sendLineInfoRequest, sendMediaMessage: sendLineMedia } = require('./services/line-sender');
 const { saveFile, getFileUrl, readFile } = require('./services/file-handler');
-const { getStats, getConversation, getConversationByUser } = require('./services/conversation-store');
+const { getStats, getConversation, getConversationByUser, storeConversation } = require('./services/conversation-store');
 const { startPolling, stopPolling, getStatus: getPollingStatus, getStats: getPollingStats } = require('./services/google-chat-poller');
 const { storeMessage, getHistory, formatForDisplay, normalizePhoneNumber } = require('./services/message-history');
 const { getProfile, saveProfile, getStats: getProfileStats } = require('./services/customer-profiles');
@@ -1027,34 +1027,45 @@ app.post('/webhooks/elevenlabs/escalate', async (req, res) => {
       });
     }
 
-    // Try to find existing conversation for reply link using phone number
+    // Try to find or create conversation for reply link
     let replyLink = null;
 
     if (customer_phone) {
-      // Normalize phone number for consistent lookup
       const cleanPhone = normalizePhoneNumber(customer_phone);
       console.log(`Looking up conversation for phone: ${cleanPhone}`);
 
-      // Look up conversation by WhatsApp phone number (normalized - no + prefix)
-      const conversation = getConversationByUser('whatsapp', cleanPhone);
+      // Look up existing conversation
+      let conversation = getConversationByUser('whatsapp', cleanPhone);
+
+      // If no conversation exists, create one for this escalation
+      if (!conversation) {
+        console.log(`No existing conversation - creating one for escalation`);
+        const conversationId = `conv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+        // Store conversation for reply portal
+        storeConversation(
+          'whatsapp',
+          cleanPhone,
+          null, // No Google Chat thread yet
+          SINGLE_SPACE_ID,
+          {
+            platform: 'whatsapp',
+            senderId: cleanPhone,
+            phoneNumber: cleanPhone,
+            senderName: customer_name || null,
+            customerName: customer_name || null,
+            customerBusiness: customer_company || null
+          },
+          conversationId
+        );
+
+        conversation = { id: conversationId };
+        console.log(`Created conversation: ${conversationId}`);
+      }
+
       if (conversation) {
         replyLink = `https://bma-messenger-hub-ooyy.onrender.com/reply/${conversation.id}`;
-        console.log(`Found conversation for reply link: ${conversation.id}`);
-      }
-    }
-
-    // Fallback: look for any recent WhatsApp conversation
-    if (!replyLink) {
-      const conversationStats = getStats();
-      if (conversationStats.activeConversations && conversationStats.activeConversations.length > 0) {
-        const recentConv = conversationStats.activeConversations.find(conv =>
-          conv.platform === 'whatsapp' &&
-          (Date.now() - new Date(conv.lastActivity).getTime()) < 30 * 60 * 1000
-        );
-        if (recentConv) {
-          replyLink = `https://bma-messenger-hub-ooyy.onrender.com/reply/${recentConv.id}`;
-          console.log(`Found recent conversation as fallback: ${recentConv.id}`);
-        }
+        console.log(`Reply link: ${replyLink}`);
       }
     }
 
