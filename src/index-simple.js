@@ -1097,6 +1097,31 @@ app.post('/webhooks/elevenlabs/escalate', async (req, res) => {
       // No phone provided - try to find most recent WhatsApp conversation
       console.log('No customer_phone provided - looking up most recent WhatsApp conversation');
       conversation = getMostRecentConversation('whatsapp');
+
+      // If still no conversation found, CREATE one anyway so reply link is always available
+      if (!conversation) {
+        console.log('No recent conversation found - creating one for escalation');
+        const conversationId = `conv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        const tempUserId = `escalation_${Date.now()}`;
+
+        storeConversation(
+          'whatsapp',
+          tempUserId,
+          null,
+          SINGLE_SPACE_ID,
+          {
+            platform: 'whatsapp',
+            senderId: tempUserId,
+            senderName: customer_name || null,
+            customerName: customer_name || null,
+            customerBusiness: customer_company || null
+          },
+          conversationId
+        );
+
+        conversation = { id: conversationId };
+        console.log(`Created fallback conversation: ${conversationId}`);
+      }
     }
 
     if (conversation) {
