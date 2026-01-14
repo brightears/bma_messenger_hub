@@ -446,6 +446,56 @@ app.get('/api/customer-stats', (req, res) => {
   });
 });
 
+// Customer Profile Lookup API - POST version for ElevenLabs tool
+app.post('/api/customer-lookup', (req, res) => {
+  try {
+    const { phone } = req.body;
+    console.log(`📋 Customer profile lookup (POST) for: ${phone}`);
+
+    if (!phone) {
+      return res.json({
+        success: false,
+        found: false,
+        message: 'No phone number provided'
+      });
+    }
+
+    const profile = getProfile(phone);
+
+    if (profile && (profile.name || profile.company || profile.email)) {
+      console.log(`✅ Found returning customer: ${profile.name || phone}`);
+      return res.json({
+        success: true,
+        found: true,
+        customer: {
+          name: profile.name || null,
+          company: profile.company || null,
+          email: profile.email || null
+        },
+        message: profile.name
+          ? `This is a returning customer: ${profile.name}${profile.company ? ` from ${profile.company}` : ''}`
+          : 'Customer info found on file'
+      });
+    }
+
+    console.log(`📋 New customer (no profile): ${phone}`);
+    return res.json({
+      success: true,
+      found: false,
+      customer: null,
+      message: 'This is a new customer, no previous info on file'
+    });
+
+  } catch (error) {
+    console.error('Customer lookup error:', error.message);
+    return res.json({
+      success: false,
+      found: false,
+      error: error.message
+    });
+  }
+});
+
 // WhatsApp webhook verification
 app.get('/webhooks/whatsapp', (req, res) => {
   const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN || 'bma_whatsapp_verify_2024';
