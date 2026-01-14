@@ -518,22 +518,24 @@ app.post('/webhooks/whatsapp', async (req, res) => {
         console.log('Translated text preview:', translation.translatedText.substring(0, 100));
       }
 
-      // No routing needed - all messages go to single BMA Chat Support space
-      console.log('Forwarding WhatsApp message to BMA Chat Support space');
+      // ============================================================
+      // WHATSAPP → GOOGLE CHAT FORWARDING DISABLED
+      // ElevenLabs handles WhatsApp conversations and sends escalation
+      // summary to Google Chat. No need to forward raw messages.
+      // This prevents duplicate messages in Google Chat.
+      // LINE messages are still forwarded (see /webhooks/line)
+      // ============================================================
+      console.log('WhatsApp message received - ElevenLabs handles response and escalation');
 
-      // Send the translated text (or original if no translation) to Google Chat
-      const messageToSend = translation.isTranslated ? translation.translatedText : parsedMessage.messageText;
-
-      // Include customer info in senderInfo for Google Chat
+      // Store conversation mapping for reply portal (without sending to GChat)
       const enrichedSenderInfo = {
         ...parsedMessage,
-        messageText: parsedMessage.messageText,  // Keep original message for reply context
+        messageText: parsedMessage.messageText,
         customerName: customerInfo.name || parsedMessage.senderName,
         customerBusiness: customerInfo.businessName
       };
 
-      await sendMessage(SINGLE_SPACE_ID, messageToSend, enrichedSenderInfo);
-      console.log(`WhatsApp message forwarded to BMA Chat Support space with customer info`);
+      // Note: Conversation will be stored when escalation happens via ElevenLabs webhook
     } else {
       console.log('WhatsApp message could not be parsed or is invalid');
     }
