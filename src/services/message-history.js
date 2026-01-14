@@ -36,7 +36,7 @@ class MessageHistory {
    * @param {string} platform - 'whatsapp' or 'line'
    * @param {Object} metadata - Additional message data (sender name, files, etc.)
    */
-  storeMessage(identifier, text, direction, platform, metadata = {}) {
+  storeMessage(identifier, text, direction, platform, metadata = {}, customTimestamp = null) {
     if (!identifier || !text) {
       console.log('Missing identifier or text, skipping message storage');
       return;
@@ -49,13 +49,16 @@ class MessageHistory {
 
     const messageHistory = this.messages.get(identifier);
 
+    // Use custom timestamp if provided, otherwise use current time
+    const timestamp = customTimestamp || Date.now();
+
     // Add new message
     const message = {
-      id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      id: `msg_${timestamp}_${Math.random().toString(36).substr(2, 9)}`,
       text: text,
       direction: direction, // 'incoming' from customer, 'outgoing' from agent
       platform: platform,
-      timestamp: Date.now(),
+      timestamp: timestamp,
       metadata: metadata
     };
 

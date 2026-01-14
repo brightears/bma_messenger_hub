@@ -946,25 +946,51 @@ app.post('/webhooks/elevenlabs/escalate', async (req, res) => {
       const cleanPhone = normalizePhoneNumber(customer_phone);
       console.log('Processing conversation_history from escalation...');
 
+      // Get existing messages to find customer timestamps
+      const existingMessages = getHistory(cleanPhone);
+      const customerMessages = existingMessages.filter(m => m.direction === 'incoming');
+
       // Parse the conversation history (format: "Customer: [msg]\nAgent: [msg]\n...")
       const lines = conversation_history.split('\n').filter(line => line.trim());
-      let agentMessagesStored = 0;
 
+      // Build ordered message list from conversation_history
+      const parsedMessages = [];
       for (const line of lines) {
         const trimmedLine = line.trim();
-        if (trimmedLine.startsWith('Agent:')) {
-          const message = trimmedLine.replace(/^Agent:\s*/, '').trim();
-          if (message) {
-            storeMessage(cleanPhone, message, 'outgoing', 'whatsapp', {
-              senderName: 'BMAsia Support',
-              source: 'elevenlabs_escalation'
-            });
-            agentMessagesStored++;
-          }
+        if (trimmedLine.startsWith('Customer:')) {
+          parsedMessages.push({ type: 'customer', text: trimmedLine.replace(/^Customer:\s*/, '').trim() });
+        } else if (trimmedLine.startsWith('Agent:')) {
+          parsedMessages.push({ type: 'agent', text: trimmedLine.replace(/^Agent:\s*/, '').trim() });
         }
-        // Customer messages are already stored when received via WhatsApp webhook
       }
-      console.log(`Stored ${agentMessagesStored} agent messages from conversation_history`);
+
+      // Store agent messages with timestamps interleaved with customer messages
+      let customerIndex = 0;
+      let lastTimestamp = customerMessages.length > 0 ? customerMessages[0].timestamp - 1000 : Date.now() - 60000;
+      let agentMessagesStored = 0;
+
+      for (const msg of parsedMessages) {
+        if (msg.type === 'customer') {
+          // Find matching customer message to get its timestamp
+          if (customerIndex < customerMessages.length) {
+            lastTimestamp = customerMessages[customerIndex].timestamp;
+            customerIndex++;
+          } else {
+            lastTimestamp += 1000; // 1 second gap
+          }
+        } else if (msg.type === 'agent' && msg.text) {
+          // Store agent message with timestamp just after the last message
+          const agentTimestamp = lastTimestamp + 500; // 500ms after previous
+          storeMessage(cleanPhone, msg.text, 'outgoing', 'whatsapp', {
+            senderName: 'BMAsia Support',
+            source: 'elevenlabs_escalation'
+          }, agentTimestamp);
+          lastTimestamp = agentTimestamp;
+          agentMessagesStored++;
+        }
+      }
+
+      console.log(`Stored ${agentMessagesStored} agent messages from conversation_history (chronologically ordered)`);
     } else {
       // Fallback: try to fetch from ElevenLabs API (works for completed conversations)
       const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY || 'sk_42e0e37fe9ef457906b11dce0ac6ea5262a005ec2ce0ca6e';
