@@ -964,6 +964,39 @@ app.post('/webhooks/elevenlabs/escalate', async (req, res) => {
       }
     }
 
+    // If STILL no phone, look up most recent ElevenLabs WhatsApp conversation
+    if (!actualPhone) {
+      console.log('Still no phone - looking up most recent ElevenLabs conversation...');
+      const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY || 'sk_42e0e37fe9ef457906b11dce0ac6ea5262a005ec2ce0ca6e';
+      const ELEVENLABS_AGENT_ID = process.env.ELEVENLABS_AGENT_ID || 'agent_8501kesasj5fe8b8rm6nnxcvn4kb';
+
+      try {
+        const listResponse = await axios.get(
+          `https://api.elevenlabs.io/v1/convai/conversations?agent_id=${ELEVENLABS_AGENT_ID}&page_size=1`,
+          { headers: { 'xi-api-key': ELEVENLABS_API_KEY } }
+        );
+
+        if (listResponse.data?.conversations?.length > 0) {
+          const recentConvId = listResponse.data.conversations[0].conversation_id;
+          console.log(`Found recent ElevenLabs conversation: ${recentConvId}`);
+
+          // Get conversation details to extract phone
+          const convResponse = await axios.get(
+            `https://api.elevenlabs.io/v1/convai/conversations/${recentConvId}`,
+            { headers: { 'xi-api-key': ELEVENLABS_API_KEY } }
+          );
+
+          const whatsappUserId = convResponse.data?.metadata?.whatsapp?.whatsapp_user_id;
+          if (whatsappUserId) {
+            actualPhone = whatsappUserId;
+            console.log(`✅ Found phone from recent conversation: ${actualPhone}`);
+          }
+        }
+      } catch (err) {
+        console.log('Could not fetch recent conversation:', err.message);
+      }
+    }
+
     // Generate a message storage identifier (will be determined after conversation creation)
     // This ensures messages are stored under the same key used by the reply portal
     let messageStorageId = actualPhone ? normalizePhoneNumber(actualPhone) : null;
