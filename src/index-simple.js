@@ -449,14 +449,34 @@ app.get('/api/customer-stats', async (req, res) => {
 // Customer Profile Lookup API - POST version for ElevenLabs tool
 app.post('/api/customer-lookup', async (req, res) => {
   try {
-    const { phone } = req.body;
-    console.log(`📋 Customer profile lookup (POST) for: ${phone}`);
+    let { phone, conversation_id } = req.body;
+    console.log(`📋 Customer profile lookup - phone: ${phone}, conversation_id: ${conversation_id}`);
+
+    // If conversation_id provided (from ElevenLabs dynamic variable), fetch phone from ElevenLabs API
+    if (!phone && conversation_id) {
+      console.log(`📋 Fetching phone from ElevenLabs conversation: ${conversation_id}`);
+      try {
+        const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY || 'sk_42e0e37fe9ef457906b11dce0ac6ea5262a005ec2ce0ca6e';
+        const convResponse = await axios.get(
+          `https://api.elevenlabs.io/v1/convai/conversations/${conversation_id}`,
+          { headers: { 'xi-api-key': ELEVENLABS_API_KEY } }
+        );
+        phone = convResponse.data?.metadata?.whatsapp?.whatsapp_user_id;
+        if (phone) {
+          console.log(`📋 Found phone from conversation: ${phone}`);
+        } else {
+          console.log(`📋 No WhatsApp phone in conversation metadata`);
+        }
+      } catch (err) {
+        console.log(`📋 Could not fetch phone from conversation: ${err.message}`);
+      }
+    }
 
     if (!phone) {
       return res.json({
         success: false,
         found: false,
-        message: 'No phone number provided'
+        message: 'Could not determine phone number'
       });
     }
 
