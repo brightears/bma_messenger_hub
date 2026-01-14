@@ -16,7 +16,7 @@ const { processGoogleChatWebhook } = require('./webhooks/google-chat');
 const { healthCheck: whatsappHealthCheck, sendWhatsAppMessage, sendInfoRequest: sendWhatsAppInfoRequest, sendMediaMessage: sendWhatsAppMedia } = require('./services/whatsapp-sender');
 const { healthCheck: lineHealthCheck, sendLineMessage, sendInfoRequest: sendLineInfoRequest, sendMediaMessage: sendLineMedia } = require('./services/line-sender');
 const { saveFile, getFileUrl, readFile } = require('./services/file-handler');
-const { getStats, getConversation, getConversationByUser, storeConversation } = require('./services/conversation-store');
+const { getStats, getConversation, getConversationByUser, storeConversation, getMostRecentConversation } = require('./services/conversation-store');
 const { startPolling, stopPolling, getStatus: getPollingStatus, getStats: getPollingStats } = require('./services/google-chat-poller');
 const { storeMessage, getHistory, formatForDisplay, normalizePhoneNumber, clearOutgoingMessages } = require('./services/message-history');
 const { getProfile, saveProfile, getStats: getProfileStats } = require('./services/customer-profiles');
@@ -1059,13 +1059,14 @@ app.post('/webhooks/elevenlabs/escalate', async (req, res) => {
 
     // Try to find or create conversation for reply link
     let replyLink = null;
+    let conversation = null;
 
     if (customer_phone) {
       const cleanPhone = normalizePhoneNumber(customer_phone);
       console.log(`Looking up conversation for phone: ${cleanPhone}`);
 
       // Look up existing conversation
-      let conversation = getConversationByUser('whatsapp', cleanPhone);
+      conversation = getConversationByUser('whatsapp', cleanPhone);
 
       // If no conversation exists, create one for this escalation
       if (!conversation) {
@@ -1092,11 +1093,15 @@ app.post('/webhooks/elevenlabs/escalate', async (req, res) => {
         conversation = { id: conversationId };
         console.log(`Created conversation: ${conversationId}`);
       }
+    } else {
+      // No phone provided - try to find most recent WhatsApp conversation
+      console.log('No customer_phone provided - looking up most recent WhatsApp conversation');
+      conversation = getMostRecentConversation('whatsapp');
+    }
 
-      if (conversation) {
-        replyLink = `https://bma-messenger-hub-ooyy.onrender.com/reply/${conversation.id}`;
-        console.log(`Reply link: ${replyLink}`);
-      }
+    if (conversation) {
+      replyLink = `https://bma-messenger-hub-ooyy.onrender.com/reply/${conversation.id}`;
+      console.log(`Reply link: ${replyLink}`);
     }
 
     // Format escalation alert for Google Chat

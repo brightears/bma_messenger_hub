@@ -205,6 +205,31 @@ class ConversationStore {
   }
 
   /**
+   * Get the most recent conversation for a platform
+   * @param {string} platform - Platform name (whatsapp, line)
+   * @returns {Object|null} Most recent conversation or null
+   */
+  getMostRecentConversation(platform) {
+    this.clearExpired();
+
+    let mostRecent = null;
+    let mostRecentTime = 0;
+
+    for (const conversation of this.conversations.values()) {
+      if (conversation.platform === platform && conversation.lastActivity > mostRecentTime) {
+        mostRecentTime = conversation.lastActivity;
+        mostRecent = conversation;
+      }
+    }
+
+    if (mostRecent) {
+      console.log(`📱 Found most recent ${platform} conversation: ${mostRecent.id} (user: ${mostRecent.userId})`);
+    }
+
+    return mostRecent;
+  }
+
+  /**
    * Get conversation statistics
    * @returns {Object} Statistics about stored conversations
    */
@@ -263,6 +288,7 @@ module.exports = {
   getConversation: (conversationId) => conversationStore.getConversation(conversationId),
   getConversationByUser: (platform, userId) => conversationStore.getConversationByUser(platform, userId),
   getConversationByThread: (gchatThreadId) => conversationStore.getConversationByThread(gchatThreadId),
+  getMostRecentConversation: (platform) => conversationStore.getMostRecentConversation(platform),
   updateActivity: (conversationId) => conversationStore.updateActivity(conversationId),
   clearExpired: () => conversationStore.clearExpired(),
   getStats: () => conversationStore.getStats()
