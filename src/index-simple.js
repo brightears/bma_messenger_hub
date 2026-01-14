@@ -1087,19 +1087,12 @@ app.post('/webhooks/elevenlabs/escalate', async (req, res) => {
       alertMessage += `\n🔗 ElevenLabs Conv: \`${conversation_id}\`\n`;
     }
 
-    // Add reply link(s)
+    // Add reply link - use portal for team responses (not direct WhatsApp)
     alertMessage += '\n---\n';
     if (replyLink) {
-      alertMessage += `↩️ *Reply via portal:* <${replyLink}|Click here to respond>\n`;
-    }
-    // Always add direct WhatsApp link if we have the phone number
-    if (customer_phone) {
-      const waPhone = customer_phone.replace(/[^\d]/g, ''); // Keep only digits
-      const waLink = `https://wa.me/${waPhone}`;
-      alertMessage += `💬 *Direct WhatsApp:* <${waLink}|Open WhatsApp chat>`;
-    }
-    if (!replyLink && !customer_phone) {
-      alertMessage += '_Check Google Chat for recent customer messages to reply._';
+      alertMessage += `↩️ *Reply to customer:* <${replyLink}|Click here to respond>`;
+    } else {
+      alertMessage += '_Reply link not available - check recent messages in this space._';
     }
 
     // Send to Google Chat
