@@ -795,6 +795,8 @@ app.post('/webhooks/elevenlabs/escalate', async (req, res) => {
     const {
       customer_phone,
       customer_name,
+      customer_company,
+      customer_email,
       issue_summary,
       escalation_reason,
       conversation_id,
@@ -912,14 +914,20 @@ app.post('/webhooks/elevenlabs/escalate', async (req, res) => {
     // Format escalation alert for Google Chat
     let alertMessage = '🚨 *Escalation Alert - Customer Needs Assistance*\n\n';
 
-    if (customer_phone) {
-      alertMessage += `📱 *Phone:* ${customer_phone}\n`;
-    }
     if (customer_name) {
       alertMessage += `👤 *Name:* ${customer_name}\n`;
     }
+    if (customer_company) {
+      alertMessage += `🏢 *Company:* ${customer_company}\n`;
+    }
+    if (customer_phone) {
+      alertMessage += `📱 *Phone:* ${customer_phone}\n`;
+    }
+    if (customer_email) {
+      alertMessage += `📧 *Email:* ${customer_email}\n`;
+    }
     if (issue_summary) {
-      alertMessage += `❓ *Issue:* ${issue_summary}\n`;
+      alertMessage += `\n❓ *Issue:* ${issue_summary}\n`;
     }
     if (escalation_reason) {
       alertMessage += `📝 *Reason:* ${escalation_reason}\n`;
