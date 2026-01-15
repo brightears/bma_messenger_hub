@@ -1260,14 +1260,36 @@ app.post('/webhooks/elevenlabs/escalate', async (req, res) => {
       }
     }
 
+    // Try to get customer name from profile database if not provided in escalation
+    let actualName = customer_name;
+    let actualCompany = customer_company;
+
+    if ((!actualName || !actualCompany) && actualPhone) {
+      try {
+        const profile = await getProfile(actualPhone);
+        if (profile) {
+          if (!actualName && profile.name) {
+            actualName = profile.name;
+            console.log(`Found customer name from profile: ${actualName}`);
+          }
+          if (!actualCompany && profile.company) {
+            actualCompany = profile.company;
+            console.log(`Found customer company from profile: ${actualCompany}`);
+          }
+        }
+      } catch (err) {
+        console.log('Could not look up customer profile:', err.message);
+      }
+    }
+
     // Format escalation alert for Google Chat
     let alertMessage = '🚨 *Escalation Alert - Customer Needs Assistance*\n\n';
 
-    if (customer_name) {
-      alertMessage += `👤 *Name:* ${customer_name}\n`;
+    if (actualName) {
+      alertMessage += `👤 *Name:* ${actualName}\n`;
     }
-    if (customer_company) {
-      alertMessage += `🏢 *Company:* ${customer_company}\n`;
+    if (actualCompany) {
+      alertMessage += `🏢 *Company:* ${actualCompany}\n`;
     }
     if (actualPhone) {
       alertMessage += `📱 *Phone:* ${actualPhone}\n`;
