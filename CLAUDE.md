@@ -25,7 +25,7 @@ This document provides Claude Code-specific instructions and best practices for 
 
 ## 🔒 FROZEN: WhatsApp Reply Flow (DO NOT MODIFY)
 
-**Status: WORKING AS OF 2026-01-14**
+**Status: WORKING AS OF 2026-01-15**
 
 This section documents the working WhatsApp reply flow. **DO NOT MODIFY** any of these components without explicit user approval.
 
@@ -39,25 +39,38 @@ This section documents the working WhatsApp reply flow. **DO NOT MODIFY** any of
 2. **Agent Escalation → Google Chat**
    - When AI needs to escalate, it calls `escalate_to_team` webhook
    - Our webhook (`/webhooks/elevenlabs/escalate`) receives the escalation
-   - **CRITICAL**: We fetch the customer's phone from ElevenLabs API (most recent conversation metadata)
+   - **CRITICAL**: Reply link uses ElevenLabs conversation_id directly → survives deploys!
    - Escalation alert posted to Google Chat with "Click here to respond" link
 
 3. **Team Reply → Customer WhatsApp**
-   - Team clicks reply link → opens reply portal
-   - Portal shows full conversation history
-   - Team types reply → POST to `/reply/:conversationId`
+   - Team clicks reply link → opens `/reply-el/{elevenlabs_conversation_id}`
+   - **NEW**: Portal fetches conversation directly from ElevenLabs API (not local storage)
+   - Portal shows full transcript from ElevenLabs
+   - Team types reply → POST to `/reply-el/{id}`
    - Message sent via WhatsApp Business API to customer's actual phone number
+
+### Deploy-Proof Reply Portal (Added 2026-01-15)
+
+**Problem Solved**: Reply links used to break after Render deploys because conversations were stored in-memory (Map) and lost when the dyno restarted.
+
+**Solution**: New `/reply-el/:elevenLabsConvId` endpoint that:
+1. Takes ElevenLabs conversation_id from URL
+2. Fetches conversation from ElevenLabs API directly
+3. Extracts phone from `metadata.whatsapp.whatsapp_user_id`
+4. Gets transcript for conversation history display
+5. Sends replies via WhatsApp Business API
+
+**Old endpoint** (`/reply/:conversationId`) kept for backward compatibility - uses local storage.
 
 ### Critical Code Paths (DO NOT MODIFY)
 
 | File | Lines | Function |
 |------|-------|----------|
-| `src/index-simple.js` | 967-998 | Phone lookup from ElevenLabs API |
-| `src/index-simple.js` | 1084-1145 | Conversation creation with phoneNumber |
-| `src/index-simple.js` | 1864-1988 | Reply endpoint |
+| `src/index-simple.js` | 1217-1226 | Reply link generation (uses ElevenLabs ID) |
+| `src/index-simple.js` | 1966-2346 | `/reply-el` GET endpoint (ElevenLabs-based) |
+| `src/index-simple.js` | 2348-2416 | `/reply-el` POST endpoint (ElevenLabs-based) |
+| `src/index-simple.js` | 1424-1960 | `/reply` GET endpoint (legacy, local storage) |
 | `src/services/whatsapp-sender.js` | 45-123 | sendWhatsAppMessage |
-| `src/services/conversation-store.js` | All | Conversation storage |
-| `src/services/message-history.js` | All | Message history storage |
 
 ### Environment Variables Required
 ```
