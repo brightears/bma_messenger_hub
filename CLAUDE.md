@@ -4,7 +4,27 @@
 
 This document provides Claude Code-specific instructions and best practices for developing the BMAsia Messenger Hub platform.
 
-## Current Status (v1.4-pairing-code-fix)
+---
+
+## ⛔ CRITICAL: FROZEN COMPONENTS - DO NOT TOUCH ⛔
+
+**The following features are PRODUCTION-CRITICAL and took significant effort to get working. DO NOT modify ANY code related to these features without EXPLICIT user approval:**
+
+1. **WhatsApp Reply Flow** (`/reply-el/` endpoint) - Escalation → Google Chat → Reply Portal → WhatsApp
+2. **Customer Profile Lookup** (`/api/customer-lookup`) - Agent recognizes returning customers
+3. **ElevenLabs Integration** - Conversation handling, phone extraction, transcript fetching
+
+**Before making ANY changes, ask yourself:**
+- Does this touch the escalation webhook? → ASK USER FIRST
+- Does this touch the reply portal? → ASK USER FIRST
+- Does this touch customer lookup? → ASK USER FIRST
+- Does this touch ElevenLabs API calls? → ASK USER FIRST
+
+**If in doubt, DO NOT TOUCH IT.**
+
+---
+
+## Current Status (v1.5-reply-portal-fix)
 
 **Last updated**: 2026-01-15
 
@@ -14,12 +34,14 @@ This document provides Claude Code-specific instructions and best practices for 
 - ✅ 24-hour message history storage
 - ✅ Customer info persistence (PostgreSQL - permanent)
 - ✅ Language auto-detection (Thai/English)
-- ✅ Reply portal with conversation tracking
 - ✅ WhatsApp & LINE webhook integration
 - ✅ ElevenLabs Conversational AI integration for WhatsApp
-- ✅ **WhatsApp reply from Google Chat portal** (FROZEN - DO NOT MODIFY)
-- ✅ **Customer profile lookup - agent recognizes returning customers** (FROZEN - DO NOT MODIFY)
 - ✅ **Soundtrack zone status with device pairing codes** (uses `device.pairingCode`)
+
+### 🔒 FROZEN Features (DO NOT MODIFY)
+- ✅ **WhatsApp reply from Google Chat portal** - Uses `/reply-el/{elevenlabs_id}` endpoint
+- ✅ **Customer profile lookup** - Agent recognizes returning customers by name
+- ✅ **Deploy-proof reply portal** - Fetches from ElevenLabs API, survives server restarts
 
 ---
 
