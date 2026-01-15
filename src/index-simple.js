@@ -1215,8 +1215,15 @@ app.post('/webhooks/elevenlabs/escalate', async (req, res) => {
     }
 
     if (conversation) {
-      replyLink = `https://bma-messenger-hub-ooyy.onrender.com/reply/${conversation.id}`;
-      console.log(`Reply link: ${replyLink}`);
+      // IMPORTANT: Use ElevenLabs conversation_id if available - survives deploys!
+      // Fall back to local conversation.id for backward compatibility
+      if (conversation_id) {
+        replyLink = `https://bma-messenger-hub-ooyy.onrender.com/reply-el/${conversation_id}`;
+        console.log(`Reply link (ElevenLabs-based): ${replyLink}`);
+      } else {
+        replyLink = `https://bma-messenger-hub-ooyy.onrender.com/reply/${conversation.id}`;
+        console.log(`Reply link (local): ${replyLink}`);
+      }
 
       // Now store the parsed messages using the conversation's userId as the storage key
       // This ensures messages are stored under the same key the reply portal will use
@@ -1957,6 +1964,462 @@ app.get('/reply/:conversationId', async (req, res) => {
     </body>
     </html>
   `);
+});
+
+// =============================================================================
+// ElevenLabs-based reply portal - survives deploys by fetching from ElevenLabs API
+// =============================================================================
+
+app.get('/reply-el/:elevenLabsConvId', async (req, res) => {
+  const { elevenLabsConvId } = req.params;
+  const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY || 'sk_42e0e37fe9ef457906b11dce0ac6ea5262a005ec2ce0ca6e';
+
+  console.log(`[reply-el] Loading reply portal for ElevenLabs conversation: ${elevenLabsConvId}`);
+
+  try {
+    // Fetch conversation from ElevenLabs API
+    const convResponse = await axios.get(
+      `https://api.elevenlabs.io/v1/convai/conversations/${elevenLabsConvId}`,
+      { headers: { 'xi-api-key': ELEVENLABS_API_KEY } }
+    );
+
+    const convData = convResponse.data;
+    const transcript = convData?.transcript || [];
+    const startTime = convData?.metadata?.start_time_unix_secs || (Date.now() / 1000);
+
+    // Extract phone from WhatsApp metadata
+    let phoneNumber = convData?.metadata?.whatsapp?.whatsapp_user_id;
+
+    // Also try customer_phone if whatsapp metadata not present
+    if (!phoneNumber && convData?.analysis?.data_collection_results?.customer_phone) {
+      phoneNumber = convData.analysis.data_collection_results.customer_phone.value;
+    }
+
+    if (!phoneNumber) {
+      console.log('[reply-el] No phone number found in conversation metadata');
+      res.status(404).send(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Phone Number Not Found</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 20px; background: #f5f5f5; }
+            .error { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+            h1 { color: #d32f2f; }
+          </style>
+        </head>
+        <body>
+          <div class="error">
+            <h1>❌ Phone Number Not Found</h1>
+            <p>Could not find the customer's phone number for this conversation.</p>
+            <p>The conversation may not have WhatsApp metadata attached.</p>
+          </div>
+        </body>
+        </html>
+      `);
+      return;
+    }
+
+    // Get customer info from our database
+    const customerProfile = await getProfile(phoneNumber);
+    const customerName = customerProfile?.name || convData?.analysis?.data_collection_results?.customer_name?.value || 'Customer';
+    const customerCompany = customerProfile?.company || convData?.analysis?.data_collection_results?.customer_company?.value || null;
+
+    console.log(`[reply-el] Found phone: ${phoneNumber}, name: ${customerName}`);
+
+    // Format transcript for display
+    const formattedHistory = transcript.map((entry, index) => {
+      const estimatedTimestamp = (startTime * 1000) + (index * 5000);
+      return {
+        text: entry.message || '',
+        direction: entry.role === 'agent' ? 'outgoing' : 'incoming',
+        timestamp: new Date(estimatedTimestamp).toLocaleTimeString('en-US', {
+          hour: 'numeric',
+          minute: '2-digit',
+          hour12: true,
+          timeZone: 'Asia/Bangkok'
+        }),
+        senderName: entry.role === 'agent' ? 'BMAsia Support' : customerName,
+        files: []
+      };
+    }).filter(m => m.text.trim());
+
+    // Render the reply portal (same UI as regular reply portal)
+    res.send(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Reply to WhatsApp Message</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <style>
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            margin: 0;
+          }
+          .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+          }
+          .header {
+            background: #7c3aed;
+            color: white;
+            padding: 20px;
+            font-size: 20px;
+            font-weight: bold;
+          }
+          .content {
+            padding: 20px;
+          }
+          .info-box {
+            background: #f8f9fa;
+            border-left: 4px solid #7c3aed;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 4px;
+          }
+          .info-row {
+            margin: 8px 0;
+            color: #495057;
+          }
+          .info-label {
+            font-weight: 600;
+            color: #212529;
+          }
+          .message-history {
+            max-height: 400px;
+            overflow-y: auto;
+            margin-bottom: 20px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border: 1px solid #e0e0e0;
+          }
+          .message {
+            margin: 10px 0;
+            padding: 10px 15px;
+            border-radius: 12px;
+            max-width: 70%;
+            word-wrap: break-word;
+          }
+          .message-incoming {
+            background: #e3f2fd;
+            margin-right: auto;
+            border-bottom-left-radius: 4px;
+          }
+          .message-outgoing {
+            background: #f5f5f5;
+            margin-left: auto;
+            text-align: right;
+            border-bottom-right-radius: 4px;
+          }
+          .message-time {
+            font-size: 11px;
+            color: #666;
+            margin-top: 4px;
+          }
+          .message-sender {
+            font-weight: 600;
+            font-size: 12px;
+            color: #555;
+            margin-bottom: 4px;
+          }
+          textarea {
+            width: 100%;
+            min-height: 150px;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 16px;
+            font-family: inherit;
+            resize: vertical;
+            box-sizing: border-box;
+          }
+          textarea:focus {
+            outline: none;
+            border-color: #7c3aed;
+          }
+          .button-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+          }
+          button {
+            flex: 1;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+          }
+          .send-btn {
+            background: #7c3aed;
+            color: white;
+          }
+          .send-btn:hover:not(:disabled) {
+            background: #6d28d9;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(124, 58, 237, 0.3);
+          }
+          .send-btn:disabled {
+            background: #9ca3af;
+            cursor: not-allowed;
+          }
+          .cancel-btn {
+            background: #f3f4f6;
+            color: #374151;
+          }
+          .cancel-btn:hover {
+            background: #e5e7eb;
+          }
+          .success-message {
+            display: none;
+            background: #10b981;
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 20px;
+            text-align: center;
+            font-weight: 600;
+          }
+          .error-message {
+            display: none;
+            background: #ef4444;
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 20px;
+          }
+          .char-count {
+            text-align: right;
+            color: #6b7280;
+            font-size: 14px;
+            margin-top: 5px;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            💬 Reply to WHATSAPP Message
+          </div>
+          <div class="content">
+            <div class="info-box">
+              <div class="info-row"><span class="info-label">Customer:</span> ${customerName}</div>
+              ${customerCompany ? `<div class="info-row"><span class="info-label">Company:</span> ${customerCompany}</div>` : ''}
+              <div class="info-row"><span class="info-label">Phone:</span> ${phoneNumber}</div>
+            </div>
+
+            ${formattedHistory.length > 0 ? `
+            <h3>📜 Conversation History</h3>
+            <div class="message-history" id="messageHistory">
+              ${formattedHistory.map(msg => `
+                <div class="message message-${msg.direction}">
+                  <div class="message-sender">${msg.senderName}</div>
+                  <div class="message-text">${msg.text}</div>
+                  <div class="message-time">${msg.timestamp}</div>
+                </div>
+              `).join('')}
+            </div>
+            ` : '<p>No message history available</p>'}
+
+            <form id="replyForm" action="/reply-el/${elevenLabsConvId}" method="POST">
+              <label for="replyText"><strong>Your Reply:</strong></label>
+              <textarea id="replyText" name="replyText" placeholder="Type your message to the customer..." required></textarea>
+              <div class="char-count"><span id="charCount">0</span> characters</div>
+
+              <div class="button-group">
+                <button type="button" class="cancel-btn" onclick="window.close()">Cancel</button>
+                <button type="submit" class="send-btn" id="sendBtn">📤 Send Reply</button>
+              </div>
+            </form>
+
+            <div class="success-message" id="successMessage">
+              ✅ Reply sent successfully! You can close this window.
+            </div>
+            <div class="error-message" id="errorMessage"></div>
+          </div>
+        </div>
+
+        <script>
+          const form = document.getElementById('replyForm');
+          const textarea = document.getElementById('replyText');
+          const charCount = document.getElementById('charCount');
+          const sendBtn = document.getElementById('sendBtn');
+          const successMessage = document.getElementById('successMessage');
+          const errorMessage = document.getElementById('errorMessage');
+
+          textarea.addEventListener('input', () => {
+            charCount.textContent = textarea.value.length;
+          });
+
+          form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            sendBtn.disabled = true;
+            sendBtn.textContent = '🔄 Sending...';
+            errorMessage.style.display = 'none';
+
+            try {
+              const response = await fetch(form.action, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ replyText: textarea.value })
+              });
+
+              const result = await response.json();
+
+              if (result.success) {
+                successMessage.style.display = 'block';
+                form.style.display = 'none';
+              } else {
+                throw new Error(result.error || 'Failed to send reply');
+              }
+            } catch (error) {
+              errorMessage.textContent = '❌ Error: ' + error.message;
+              errorMessage.style.display = 'block';
+              sendBtn.disabled = false;
+              sendBtn.textContent = '📤 Send Reply';
+            }
+          });
+
+          textarea.focus();
+
+          const messageHistory = document.getElementById('messageHistory');
+          if (messageHistory) {
+            messageHistory.scrollTop = messageHistory.scrollHeight;
+          }
+        </script>
+      </body>
+      </html>
+    `);
+
+  } catch (error) {
+    console.error('[reply-el] Error loading conversation:', error.message);
+
+    // Handle specific error cases
+    if (error.response?.status === 404) {
+      res.status(404).send(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Conversation Not Found</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 20px; background: #f5f5f5; }
+            .error { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+            h1 { color: #d32f2f; }
+          </style>
+        </head>
+        <body>
+          <div class="error">
+            <h1>❌ Conversation Not Found</h1>
+            <p>This conversation could not be found in ElevenLabs.</p>
+            <p>It may have been deleted or the conversation ID is invalid.</p>
+          </div>
+        </body>
+        </html>
+      `);
+    } else {
+      res.status(500).send(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Error Loading Conversation</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 20px; background: #f5f5f5; }
+            .error { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+            h1 { color: #d32f2f; }
+          </style>
+        </head>
+        <body>
+          <div class="error">
+            <h1>❌ Error Loading Conversation</h1>
+            <p>There was a problem loading this conversation.</p>
+            <p>Please try again or contact support.</p>
+          </div>
+        </body>
+        </html>
+      `);
+    }
+  }
+});
+
+// Handle reply submission for ElevenLabs-based portal
+app.post('/reply-el/:elevenLabsConvId', express.json(), async (req, res) => {
+  const { elevenLabsConvId } = req.params;
+  const { replyText } = req.body;
+  const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY || 'sk_42e0e37fe9ef457906b11dce0ac6ea5262a005ec2ce0ca6e';
+
+  console.log(`[reply-el POST] Processing reply for ElevenLabs conversation: ${elevenLabsConvId}`);
+
+  if (!replyText || replyText.trim().length === 0) {
+    return res.status(400).json({
+      success: false,
+      error: 'Reply text is required'
+    });
+  }
+
+  try {
+    // Fetch conversation from ElevenLabs to get phone number
+    const convResponse = await axios.get(
+      `https://api.elevenlabs.io/v1/convai/conversations/${elevenLabsConvId}`,
+      { headers: { 'xi-api-key': ELEVENLABS_API_KEY } }
+    );
+
+    const convData = convResponse.data;
+
+    // Extract phone from WhatsApp metadata
+    let phoneNumber = convData?.metadata?.whatsapp?.whatsapp_user_id;
+
+    if (!phoneNumber && convData?.analysis?.data_collection_results?.customer_phone) {
+      phoneNumber = convData.analysis.data_collection_results.customer_phone.value;
+    }
+
+    if (!phoneNumber) {
+      return res.status(400).json({
+        success: false,
+        error: 'Could not find customer phone number'
+      });
+    }
+
+    console.log(`[reply-el POST] Sending reply to phone: ${phoneNumber}`);
+
+    // Send via WhatsApp
+    const result = await sendWhatsAppMessage(phoneNumber, replyText);
+
+    if (result.success) {
+      // Store in message history
+      const cleanPhone = normalizePhoneNumber(phoneNumber);
+      storeMessage(cleanPhone, replyText, 'outgoing', 'whatsapp', {
+        senderName: 'BMAsia Support (Team)',
+        source: 'reply_portal_el'
+      });
+
+      console.log(`[reply-el POST] ✅ Reply sent successfully to ${phoneNumber}`);
+
+      res.json({
+        success: true,
+        message: 'Reply sent successfully'
+      });
+    } else {
+      throw new Error(result.error || 'Failed to send WhatsApp message');
+    }
+
+  } catch (error) {
+    console.error('[reply-el POST] Error:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to send reply'
+    });
+  }
 });
 
 // Handle reply submission with file uploads
