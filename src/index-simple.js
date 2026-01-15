@@ -20,7 +20,7 @@ const { getStats, getConversation, getConversationByUser, storeConversation, get
 const { startPolling, stopPolling, getStatus: getPollingStatus, getStats: getPollingStats } = require('./services/google-chat-poller');
 const { storeMessage, getHistory, formatForDisplay, normalizePhoneNumber, clearOutgoingMessages } = require('./services/message-history');
 const { getProfile, saveProfile, getStats: getProfileStats } = require('./services/customer-profiles');
-const { markEscalated, isEscalated, getEscalationInfo, clearEscalation } = require('./services/escalation-store');
+const { markEscalated, isEscalated, getEscalationInfo, clearEscalation, getAllEscalated } = require('./services/escalation-store');
 
 // Customer info and AI gathering services
 const {
@@ -581,7 +581,7 @@ app.post('/api/customer-lookup', async (req, res) => {
 });
 
 // Close Escalation API - allows team to close escalation and let agent respond again
-app.post('/api/close-escalation', (req, res) => {
+app.post('/api/close-escalation', async (req, res) => {
   const { phone, redirect } = req.body;
   console.log(`[close-escalation] Request to close escalation for phone: ${phone}`);
 
@@ -596,6 +596,42 @@ app.post('/api/close-escalation', (req, res) => {
     console.log(`[close-escalation] No escalation found for ${phone}`);
   }
 
+  // Check if there are any remaining escalations
+  const remainingEscalations = getAllEscalated().length;
+  let agentUnarchived = false;
+
+  if (remainingEscalations === 0) {
+    // No more escalations - unarchive the agent
+    try {
+      const unarchiveRes = await fetch(
+        `https://api.elevenlabs.io/v1/convai/agents/${process.env.ELEVENLABS_AGENT_ID}`,
+        {
+          method: 'PATCH',
+          headers: {
+            'xi-api-key': process.env.ELEVENLABS_API_KEY,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            platform_settings: {
+              archived: false
+            }
+          })
+        }
+      );
+
+      if (unarchiveRes.ok) {
+        console.log('✅ Agent UNARCHIVED - resuming normal responses');
+        agentUnarchived = true;
+      } else {
+        console.error('⚠️ Failed to unarchive agent:', await unarchiveRes.text());
+      }
+    } catch (unarchiveErr) {
+      console.error('⚠️ Error unarchiving agent:', unarchiveErr.message);
+    }
+  } else {
+    console.log(`⚠️ ${remainingEscalations} escalations still active - agent stays archived`);
+  }
+
   // If redirect URL provided, redirect back to reply portal
   if (redirect) {
     return res.redirect(redirect + '?escalation_closed=true');
@@ -604,8 +640,77 @@ app.post('/api/close-escalation', (req, res) => {
   return res.json({
     success: true,
     message: cleared ? 'Escalation closed successfully' : 'No escalation was active',
-    phone: phone
+    phone: phone,
+    agentUnarchived: agentUnarchived,
+    remainingEscalations: remainingEscalations
   });
+});
+
+// GET endpoint for closing escalation from Google Chat button
+app.get('/api/close-escalation-web', async (req, res) => {
+  const { phone } = req.query;
+  console.log(`[close-escalation-web] Request to close escalation for phone: ${phone}`);
+
+  if (!phone) {
+    return res.status(400).send('Phone number required');
+  }
+
+  const cleared = clearEscalation(phone);
+  const remainingEscalations = getAllEscalated().length;
+  let agentUnarchived = false;
+
+  if (remainingEscalations === 0) {
+    // No more escalations - unarchive the agent
+    try {
+      const unarchiveRes = await fetch(
+        `https://api.elevenlabs.io/v1/convai/agents/${process.env.ELEVENLABS_AGENT_ID}`,
+        {
+          method: 'PATCH',
+          headers: {
+            'xi-api-key': process.env.ELEVENLABS_API_KEY,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            platform_settings: {
+              archived: false
+            }
+          })
+        }
+      );
+
+      if (unarchiveRes.ok) {
+        console.log('✅ Agent UNARCHIVED - resuming normal responses');
+        agentUnarchived = true;
+      } else {
+        console.error('⚠️ Failed to unarchive agent:', await unarchiveRes.text());
+      }
+    } catch (unarchiveErr) {
+      console.error('⚠️ Error unarchiving agent:', unarchiveErr.message);
+    }
+  }
+
+  // Return a simple HTML confirmation page
+  res.send(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>Escalation Closed</title>
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+    </head>
+    <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 40px; text-align: center; background: #f5f5f5;">
+      <div style="max-width: 400px; margin: 0 auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+        <h1 style="color: #4CAF50; margin-bottom: 20px;">✅ Escalation Closed</h1>
+        <p style="color: #666; margin-bottom: 10px;">Phone: ${phone}</p>
+        <p style="color: ${agentUnarchived ? '#4CAF50' : '#FF9800'}; font-weight: 500;">
+          ${agentUnarchived
+            ? 'Agent is now back online and will respond to new messages.'
+            : `${remainingEscalations} escalation(s) still active - agent remains offline.`}
+        </p>
+        <p style="color: #999; margin-top: 20px; font-size: 14px;">You can close this tab.</p>
+      </div>
+    </body>
+    </html>
+  `);
 });
 
 // WhatsApp webhook verification
@@ -767,13 +872,44 @@ app.post('/webhooks/whatsapp', async (req, res) => {
       }
 
       // ============================================================
-      // WHATSAPP → GOOGLE CHAT FORWARDING DISABLED
-      // ElevenLabs handles WhatsApp conversations and sends escalation
-      // summary to Google Chat. No need to forward raw messages.
-      // This prevents duplicate messages in Google Chat.
-      // LINE messages are still forwarded (see /webhooks/line)
+      // WHATSAPP → GOOGLE CHAT FORWARDING
+      // Only forwards messages when agent is archived (escalation active)
+      // When agent is active, ElevenLabs handles conversations normally
       // ============================================================
-      console.log('WhatsApp message received - ElevenLabs handles response and escalation');
+
+      // Check if ANY escalation is active (agent is archived)
+      const hasActiveEscalation = getAllEscalated().length > 0;
+
+      if (hasActiveEscalation) {
+        // Agent is offline - forward message to Google Chat for manual handling
+        console.log('⚠️ Agent is archived - forwarding WhatsApp message to Google Chat');
+
+        // Check if THIS customer is escalated (to route to their thread)
+        const escalationInfo = getEscalationInfo(phoneNumber);
+
+        // Build the forwarding message
+        const forwardMessage = `📱 *WhatsApp Message Received*\n\n` +
+          `👤 From: ${parsedMessage.senderName || phoneNumber}\n` +
+          `📞 Phone: ${phoneNumber}\n\n` +
+          `💬 Message:\n${parsedMessage.messageText}\n\n` +
+          `---\n` +
+          `⚠️ _Agent is offline. Respond via reply portal._\n` +
+          `↩️ <https://bma-messenger-hub-ooyy.onrender.com/reply-wa/${phoneNumber}|Reply to customer>`;
+
+        try {
+          await sendMessage(SINGLE_SPACE_ID, forwardMessage, {
+            platform: 'whatsapp',
+            senderName: parsedMessage.senderName || 'WhatsApp Customer',
+            messageType: 'forwarded_message',
+            isUrgent: false
+          });
+          console.log('✅ WhatsApp message forwarded to Google Chat');
+        } catch (forwardErr) {
+          console.error('Failed to forward WhatsApp message to Google Chat:', forwardErr.message);
+        }
+      } else {
+        console.log('WhatsApp message received - ElevenLabs handles response');
+      }
 
       // Store conversation mapping for reply portal (without sending to GChat)
       const enrichedSenderInfo = {
@@ -1354,9 +1490,15 @@ app.post('/webhooks/elevenlabs/escalate', async (req, res) => {
     // Add reply link - use portal for team responses (not direct WhatsApp)
     alertMessage += '\n---\n';
     if (replyLink) {
-      alertMessage += `↩️ *Reply to customer:* <${replyLink}|Click here to respond>`;
+      alertMessage += `↩️ *Reply to customer:* <${replyLink}|Click here to respond>\n`;
     } else {
-      alertMessage += '_Reply link not available - check recent messages in this space._';
+      alertMessage += '_Reply link not available - check recent messages in this space._\n';
+    }
+
+    // Add Close Escalation link (allows team to re-enable agent)
+    if (actualPhone) {
+      const closeEscalationUrl = `https://bma-messenger-hub-ooyy.onrender.com/api/close-escalation-web?phone=${encodeURIComponent(actualPhone)}`;
+      alertMessage += `✅ *Done helping?* <${closeEscalationUrl}|Close Escalation>`;
     }
 
     // Send to Google Chat
@@ -1379,6 +1521,33 @@ app.post('/webhooks/elevenlabs/escalate', async (req, res) => {
           parsedMessages
         );
         console.log(`✅ Phone ${actualPhone} marked as escalated`);
+
+        // Archive the ElevenLabs agent to stop ALL responses during escalation
+        try {
+          const archiveRes = await fetch(
+            `https://api.elevenlabs.io/v1/convai/agents/${process.env.ELEVENLABS_AGENT_ID}`,
+            {
+              method: 'PATCH',
+              headers: {
+                'xi-api-key': process.env.ELEVENLABS_API_KEY,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                platform_settings: {
+                  archived: true
+                }
+              })
+            }
+          );
+
+          if (archiveRes.ok) {
+            console.log('✅ Agent ARCHIVED - no responses until escalation closed');
+          } else {
+            console.error('⚠️ Failed to archive agent:', await archiveRes.text());
+          }
+        } catch (archiveErr) {
+          console.error('⚠️ Error archiving agent:', archiveErr.message);
+        }
       }
 
       // Return success response for ElevenLabs
