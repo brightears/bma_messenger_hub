@@ -227,10 +227,10 @@ app.post('/api/soundtrack/zone-status', async (req, res) => {
     const SOUNDTRACK_TOKEN = process.env.SOUNDTRACK_API_TOKEN || 'YVhId2UyTWJVWEhMRWlycUFPaUl3Y2NtOXNGeUoxR0Q6SVRHazZSWDVYV2FTenhiS1ZwNE1sSmhHUUJEVVRDdDZGU0FwVjZqMXNEQU1EMjRBT2pub2hmZ3NQODRRNndQWg==';
 
     // If it's an account ID, do account lookup
-    // Include remoteCode for pairing codes
+    // Include device { pairingCode } for device pairing codes
     if (useAccountLookup) {
       const accountQuery = JSON.stringify({
-        query: `query { account(id: "${queryId}") { id businessName locations(first: 5) { edges { node { name soundZones(first: 20) { edges { node { id name isPaired remoteCode playback { state } } } } } } } } }`
+        query: `query { account(id: "${queryId}") { id businessName locations(first: 5) { edges { node { name soundZones(first: 20) { edges { node { id name isPaired device { pairingCode } playback { state } } } } } } } } }`
       });
 
       console.log('Account query with encoded ID:', queryId);
@@ -258,9 +258,9 @@ app.post('/api/soundtrack/zone-status', async (req, res) => {
               is_paired: zone.isPaired,
               is_playing: zone.playback?.state === 'playing'
             };
-            // Include pairing code if zone is not paired
-            if (!zone.isPaired && zone.remoteCode) {
-              zoneData.pairing_code = zone.remoteCode;
+            // Include device pairing code if zone is not paired and has device
+            if (!zone.isPaired && zone.device?.pairingCode) {
+              zoneData.pairing_code = zone.device.pairingCode;
             }
             allZones.push(zoneData);
           }
@@ -291,9 +291,9 @@ app.post('/api/soundtrack/zone-status', async (req, res) => {
     }
 
     // Try zone lookup first (for zone IDs or unknown types)
-    // Include remoteCode for pairing code when zone is not paired
+    // Include device { pairingCode } for device pairing code when zone is not paired
     const zoneQuery = JSON.stringify({
-      query: `query { soundZone(id: "${queryId}") { id name isPaired remoteCode playback { state } } }`
+      query: `query { soundZone(id: "${queryId}") { id name isPaired device { pairingCode } playback { state } } }`
     });
 
     console.log('Zone query with ID:', queryId);
@@ -316,18 +316,18 @@ app.post('/api/soundtrack/zone-status', async (req, res) => {
         },
         message: `Zone "${zone.name}" is ${zone.isPaired ? 'paired' : 'not paired'} and ${zone.playback?.state === 'playing' ? 'currently playing' : 'not playing'}.`
       };
-      // Include pairing code if zone is not paired
-      if (!zone.isPaired && zone.remoteCode) {
-        responseData.zone.pairing_code = zone.remoteCode;
-        responseData.message += ` Pairing code: ${zone.remoteCode}`;
+      // Include device pairing code if zone is not paired and has device
+      if (!zone.isPaired && zone.device?.pairingCode) {
+        responseData.zone.pairing_code = zone.device.pairingCode;
+        responseData.message += ` Pairing code: ${zone.device.pairingCode}`;
       }
       return res.json(responseData);
     }
 
     // Zone not found - try account lookup as fallback
-    // Include remoteCode for pairing codes
+    // Include device { pairingCode } for pairing codes
     const accountQuery = JSON.stringify({
-      query: `query { account(id: "${queryId}") { id businessName locations(first: 5) { edges { node { name soundZones(first: 20) { edges { node { id name isPaired remoteCode playback { state } } } } } } } } }`
+      query: `query { account(id: "${queryId}") { id businessName locations(first: 5) { edges { node { name soundZones(first: 20) { edges { node { id name isPaired device { pairingCode } playback { state } } } } } } } } }`
     });
 
     console.log('Fallback account query with ID:', queryId);
@@ -352,9 +352,9 @@ app.post('/api/soundtrack/zone-status', async (req, res) => {
             is_paired: zone.isPaired,
             is_playing: zone.playback?.state === 'playing'
           };
-          // Include pairing code if zone is not paired
-          if (!zone.isPaired && zone.remoteCode) {
-            zoneData.pairing_code = zone.remoteCode;
+          // Include device pairing code if zone is not paired and has device
+          if (!zone.isPaired && zone.device?.pairingCode) {
+            zoneData.pairing_code = zone.device.pairingCode;
           }
           allZones.push(zoneData);
         }
