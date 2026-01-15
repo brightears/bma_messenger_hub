@@ -141,19 +141,34 @@ DATABASE_URL=<PostgreSQL connection string>
 
 ## Google Chat Escalation Message Format
 
-**Status: Working**
+**Status: Working (Updated 2026-01-15)**
 
-When the ElevenLabs agent escalates to the team, a formatted message appears in Google Chat with:
-- Customer name, phone, company
-- Issue summary
-- Urgency level
-- Reply link to portal
+When the ElevenLabs agent escalates to the team, a formatted message appears in Google Chat:
+
+```
+🚨 *Escalation Alert - Customer Needs Assistance*
+
+👤 *Name:* [customer name]
+🏢 *Company:* [company]
+📱 *Phone:* [phone]
+📧 *Email:* [email]
+
+❓ *Issue:* [issue summary]
+⚠️ *Urgency:* [urgency level]
+
+🔗 ElevenLabs Conv: [conversation_id]
+
+---
+↩️ *Reply to customer:* Click here to respond
+```
 
 **Key files:**
-- `src/index-simple.js:1220-1270` - Builds escalation alert message
+- `src/index-simple.js:1226-1256` - Builds escalation alert message
 - `src/services/google-chat-simple.js:165-206` - `formatMessage()` formats for Google Chat
 
-**Note:** The escalation message already includes a reply link. The `formatMessage()` function should NOT add another one (check for existing reply link to avoid duplicates).
+**Design decisions:**
+- `escalation_reason` (e.g., "customer_requested") is NOT displayed - issue summary provides sufficient context
+- `formatMessage()` checks `!message.includes('Reply to customer:')` before adding fallback link - prevents duplicate reply links on escalation alerts
 
 ---
 

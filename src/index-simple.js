@@ -227,9 +227,10 @@ app.post('/api/soundtrack/zone-status', async (req, res) => {
     const SOUNDTRACK_TOKEN = process.env.SOUNDTRACK_API_TOKEN || 'YVhId2UyTWJVWEhMRWlycUFPaUl3Y2NtOXNGeUoxR0Q6SVRHazZSWDVYV2FTenhiS1ZwNE1sSmhHUUJEVVRDdDZGU0FwVjZqMXNEQU1EMjRBT2pub2hmZ3NQODRRNndQWg==';
 
     // If it's an account ID, do account lookup
+    // Include remoteCode for pairing codes
     if (useAccountLookup) {
       const accountQuery = JSON.stringify({
-        query: `query { account(id: "${queryId}") { id businessName locations(first: 5) { edges { node { name soundZones(first: 20) { edges { node { id name isPaired playback { state } } } } } } } } }`
+        query: `query { account(id: "${queryId}") { id businessName locations(first: 5) { edges { node { name soundZones(first: 20) { edges { node { id name isPaired remoteCode playback { state } } } } } } } } }`
       });
 
       console.log('Account query with encoded ID:', queryId);
@@ -250,15 +251,26 @@ app.post('/api/soundtrack/zone-status', async (req, res) => {
           const location = locEdge.node;
           for (const zoneEdge of (location.soundZones?.edges || [])) {
             const zone = zoneEdge.node;
-            allZones.push({
+            const zoneData = {
               id: zone.id,
               name: zone.name,
               location: location.name,
               is_paired: zone.isPaired,
               is_playing: zone.playback?.state === 'playing'
-            });
+            };
+            // Include pairing code if zone is not paired
+            if (!zone.isPaired && zone.remoteCode) {
+              zoneData.pairing_code = zone.remoteCode;
+            }
+            allZones.push(zoneData);
           }
         }
+        // Build message with pairing codes for unpaired zones
+        const zoneMessages = allZones.map(z => {
+          let msg = `${z.name}: ${z.is_paired ? 'paired' : 'not paired'}, ${z.is_playing ? 'playing' : 'not playing'}`;
+          if (z.pairing_code) msg += ` (pairing code: ${z.pairing_code})`;
+          return msg;
+        });
         return res.json({
           success: true,
           account: {
@@ -266,7 +278,7 @@ app.post('/api/soundtrack/zone-status', async (req, res) => {
             business_name: account.businessName,
             zones: allZones
           },
-          message: `Found account "${account.businessName}" with ${allZones.length} zone(s). ${allZones.map(z => `${z.name}: ${z.is_paired ? 'paired' : 'not paired'}, ${z.is_playing ? 'playing' : 'not playing'}`).join('. ')}`
+          message: `Found account "${account.businessName}" with ${allZones.length} zone(s). ${zoneMessages.join('. ')}`
         });
       } else {
         console.log('Account not found. API response:', JSON.stringify(accountResponse.data));
@@ -279,8 +291,9 @@ app.post('/api/soundtrack/zone-status', async (req, res) => {
     }
 
     // Try zone lookup first (for zone IDs or unknown types)
+    // Include remoteCode for pairing code when zone is not paired
     const zoneQuery = JSON.stringify({
-      query: `query { soundZone(id: "${queryId}") { id name isPaired playback { state } } }`
+      query: `query { soundZone(id: "${queryId}") { id name isPaired remoteCode playback { state } } }`
     });
 
     console.log('Zone query with ID:', queryId);
@@ -293,7 +306,7 @@ app.post('/api/soundtrack/zone-status', async (req, res) => {
 
     if (response.data.data?.soundZone) {
       const zone = response.data.data.soundZone;
-      return res.json({
+      const responseData = {
         success: true,
         zone: {
           id: zone.id,
@@ -301,13 +314,20 @@ app.post('/api/soundtrack/zone-status', async (req, res) => {
           is_paired: zone.isPaired,
           is_playing: zone.playback?.state === 'playing'
         },
-        message: `Zone "${zone.name}" is ${zone.isPaired ? 'paired' : 'not paired'} and ${zone.playback?.playing ? 'currently playing' : 'not playing'}.`
-      });
+        message: `Zone "${zone.name}" is ${zone.isPaired ? 'paired' : 'not paired'} and ${zone.playback?.state === 'playing' ? 'currently playing' : 'not playing'}.`
+      };
+      // Include pairing code if zone is not paired
+      if (!zone.isPaired && zone.remoteCode) {
+        responseData.zone.pairing_code = zone.remoteCode;
+        responseData.message += ` Pairing code: ${zone.remoteCode}`;
+      }
+      return res.json(responseData);
     }
 
     // Zone not found - try account lookup as fallback
+    // Include remoteCode for pairing codes
     const accountQuery = JSON.stringify({
-      query: `query { account(id: "${queryId}") { id businessName locations(first: 5) { edges { node { name soundZones(first: 20) { edges { node { id name isPaired playback { state } } } } } } } } }`
+      query: `query { account(id: "${queryId}") { id businessName locations(first: 5) { edges { node { name soundZones(first: 20) { edges { node { id name isPaired remoteCode playback { state } } } } } } } } }`
     });
 
     console.log('Fallback account query with ID:', queryId);
@@ -325,15 +345,26 @@ app.post('/api/soundtrack/zone-status', async (req, res) => {
         const location = locEdge.node;
         for (const zoneEdge of (location.soundZones?.edges || [])) {
           const zone = zoneEdge.node;
-          allZones.push({
+          const zoneData = {
             id: zone.id,
             name: zone.name,
             location: location.name,
             is_paired: zone.isPaired,
             is_playing: zone.playback?.state === 'playing'
-          });
+          };
+          // Include pairing code if zone is not paired
+          if (!zone.isPaired && zone.remoteCode) {
+            zoneData.pairing_code = zone.remoteCode;
+          }
+          allZones.push(zoneData);
         }
       }
+      // Build message with pairing codes for unpaired zones
+      const zoneMessages = allZones.map(z => {
+        let msg = `${z.name}: ${z.is_paired ? 'paired' : 'not paired'}, ${z.is_playing ? 'playing' : 'not playing'}`;
+        if (z.pairing_code) msg += ` (pairing code: ${z.pairing_code})`;
+        return msg;
+      });
       return res.json({
         success: true,
         account: {
@@ -341,7 +372,7 @@ app.post('/api/soundtrack/zone-status', async (req, res) => {
           business_name: account.businessName,
           zones: allZones
         },
-        message: `Found account "${account.businessName}" with ${allZones.length} zone(s). ${allZones.map(z => `${z.name}: ${z.is_paired ? 'paired' : 'not paired'}, ${z.is_playing ? 'playing' : 'not playing'}`).join('. ')}`
+        message: `Found account "${account.businessName}" with ${allZones.length} zone(s). ${zoneMessages.join('. ')}`
       });
     }
 
