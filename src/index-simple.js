@@ -20,6 +20,7 @@ const { getStats, getConversation, getConversationByUser, storeConversation, get
 const { startPolling, stopPolling, getStatus: getPollingStatus, getStats: getPollingStats } = require('./services/google-chat-poller');
 const { storeMessage, getHistory, formatForDisplay, normalizePhoneNumber, clearOutgoingMessages } = require('./services/message-history');
 const { getProfile, saveProfile, getStats: getProfileStats } = require('./services/customer-profiles');
+const { markEscalated, isEscalated, getEscalationInfo, clearEscalation } = require('./services/escalation-store');
 
 // Customer info and AI gathering services
 const {
@@ -531,6 +532,12 @@ app.post('/api/customer-lookup', async (req, res) => {
       }
     }
 
+    // Check if this phone number has an open escalation
+    const escalated = isEscalated(phone);
+    if (escalated) {
+      console.log(`⚠️ Customer ${phone} has an OPEN ESCALATION - agent should defer to team`);
+    }
+
     if (profile && (profile.name || profile.company || profile.email)) {
       console.log(`✅ Found returning customer: ${profile.name || phone}`);
       return res.json({
@@ -541,6 +548,10 @@ app.post('/api/customer-lookup', async (req, res) => {
           company: profile.company || null,
           email: profile.email || null
         },
+        is_escalated: escalated,
+        escalation_message: escalated
+          ? 'This customer has an open escalation. A team member is handling their request. Do NOT try to help - just tell them a colleague will respond shortly.'
+          : null,
         message: profile.name
           ? `This is a returning customer: ${profile.name}${profile.company ? ` from ${profile.company}` : ''}`
           : 'Customer info found on file'
@@ -552,6 +563,10 @@ app.post('/api/customer-lookup', async (req, res) => {
       success: true,
       found: false,
       customer: null,
+      is_escalated: escalated,
+      escalation_message: escalated
+        ? 'This customer has an open escalation. A team member is handling their request. Do NOT try to help - just tell them a colleague will respond shortly.'
+        : null,
       message: 'This is a new customer, no previous info on file'
     });
 
@@ -563,6 +578,34 @@ app.post('/api/customer-lookup', async (req, res) => {
       error: error.message
     });
   }
+});
+
+// Close Escalation API - allows team to close escalation and let agent respond again
+app.post('/api/close-escalation', (req, res) => {
+  const { phone, redirect } = req.body;
+  console.log(`[close-escalation] Request to close escalation for phone: ${phone}`);
+
+  if (!phone) {
+    return res.status(400).send('Phone number required');
+  }
+
+  const cleared = clearEscalation(phone);
+  if (cleared) {
+    console.log(`[close-escalation] ✅ Escalation cleared for ${phone}`);
+  } else {
+    console.log(`[close-escalation] No escalation found for ${phone}`);
+  }
+
+  // If redirect URL provided, redirect back to reply portal
+  if (redirect) {
+    return res.redirect(redirect + '?escalation_closed=true');
+  }
+
+  return res.json({
+    success: true,
+    message: cleared ? 'Escalation closed successfully' : 'No escalation was active',
+    phone: phone
+  });
 });
 
 // WhatsApp webhook verification
@@ -1326,6 +1369,18 @@ app.post('/webhooks/elevenlabs/escalate', async (req, res) => {
       });
       console.log('✅ Escalation alert sent to Google Chat');
 
+      // Mark this phone number as escalated so agent defers to team on future messages
+      if (actualPhone) {
+        markEscalated(
+          actualPhone,
+          conversation?.threadId || null,
+          actualName,
+          conversation_id,
+          parsedMessages
+        );
+        console.log(`✅ Phone ${actualPhone} marked as escalated`);
+      }
+
       // Return success response for ElevenLabs
       res.json({
         success: true,
@@ -2050,7 +2105,7 @@ app.get('/reply-el/:elevenLabsConvId', async (req, res) => {
     console.log(`[reply-el] Found phone: ${phoneNumber}, name: ${customerName}`);
 
     // Format transcript for display
-    const formattedHistory = transcript.map((entry, index) => {
+    let formattedHistory = transcript.map((entry, index) => {
       const estimatedTimestamp = (startTime * 1000) + (index * 5000);
       return {
         text: entry.message || '',
@@ -2065,6 +2120,31 @@ app.get('/reply-el/:elevenLabsConvId', async (req, res) => {
         files: []
       };
     }).filter(m => m.text.trim());
+
+    // FALLBACK: If ElevenLabs transcript is empty, try stored escalation history
+    if (formattedHistory.length === 0) {
+      console.log('[reply-el] ElevenLabs transcript empty - checking stored escalation history...');
+      const escalationInfo = getEscalationInfo(phoneNumber);
+      if (escalationInfo && escalationInfo.conversationHistory && escalationInfo.conversationHistory.length > 0) {
+        console.log(`[reply-el] Found ${escalationInfo.conversationHistory.length} messages in stored escalation history`);
+        let baseTimestamp = escalationInfo.escalatedAt || Date.now();
+        formattedHistory = escalationInfo.conversationHistory.map((msg, index) => ({
+          text: msg.text || '',
+          direction: msg.type === 'customer' ? 'incoming' : 'outgoing',
+          timestamp: new Date(baseTimestamp + (index * 5000)).toLocaleTimeString('en-US', {
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true,
+            timeZone: 'Asia/Bangkok'
+          }),
+          senderName: msg.type === 'customer' ? customerName : 'BMAsia Support',
+          files: []
+        })).filter(m => m.text.trim());
+        console.log(`[reply-el] Using ${formattedHistory.length} messages from stored escalation history`);
+      } else {
+        console.log('[reply-el] No stored escalation history found either');
+      }
+    }
 
     // Render the reply portal (same UI as regular reply portal)
     res.send(`
@@ -2268,6 +2348,29 @@ app.get('/reply-el/:elevenLabsConvId', async (req, res) => {
               ✅ Reply sent successfully! You can close this window.
             </div>
             <div class="error-message" id="errorMessage"></div>
+
+            <!-- Close Escalation button - allows agent to respond again -->
+            <form action="/api/close-escalation" method="POST" style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #eee;">
+              <input type="hidden" name="phone" value="${phoneNumber}">
+              <input type="hidden" name="redirect" value="/reply-el/${elevenLabsConvId}">
+              <button type="submit" style="
+                width: 100%;
+                padding: 12px;
+                background: #4CAF50;
+                color: white;
+                border: none;
+                border-radius: 8px;
+                font-size: 14px;
+                cursor: pointer;
+              ">
+                ✅ Close Escalation (Allow AI to respond again)
+              </button>
+              <p style="font-size: 12px; color: #666; margin-top: 8px; text-align: center;">
+                Click this when you're done helping the customer and want the AI to handle future messages.
+              </p>
+            </form>
+
+            ${req.query.escalation_closed === 'true' ? '<div style="background: #e8f5e9; color: #2e7d32; padding: 10px; border-radius: 8px; margin-top: 10px; text-align: center;">✅ Escalation closed! AI will respond to new messages.</div>' : ''}
           </div>
         </div>
 
