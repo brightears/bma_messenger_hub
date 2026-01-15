@@ -713,6 +713,327 @@ app.get('/api/close-escalation-web', async (req, res) => {
   `);
 });
 
+// Reply portal by phone number (for forwarded WhatsApp messages during escalation)
+app.get('/reply-wa/:phone', async (req, res) => {
+  const { phone } = req.params;
+  console.log(`[reply-wa] Loading reply portal for phone: ${phone}`);
+
+  try {
+    // Get message history for this phone
+    const history = getHistory(phone) || [];
+
+    // Get escalation info if available
+    const escalationInfo = getEscalationInfo(phone);
+    const customerProfile = await getProfile(phone);
+
+    const customerName = customerProfile?.name || escalationInfo?.customerName || phone;
+    const customerCompany = customerProfile?.company || null;
+
+    // Format history for display
+    const formattedHistory = history.map(msg => ({
+      text: msg.text || '',
+      direction: msg.direction,
+      timestamp: new Date(msg.timestamp).toLocaleTimeString('en-US', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+        timeZone: 'Asia/Bangkok'
+      }),
+      senderName: msg.direction === 'incoming' ? customerName : 'BMAsia Support'
+    })).filter(m => m.text.trim());
+
+    console.log(`[reply-wa] Found ${formattedHistory.length} messages in history for ${phone}`);
+
+    // Render reply portal
+    res.send(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Reply to ${customerName}</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <style>
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            margin: 0;
+          }
+          .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+          }
+          .header {
+            background: #25D366;
+            color: white;
+            padding: 20px;
+            font-size: 20px;
+            font-weight: bold;
+          }
+          .content { padding: 20px; }
+          .info-box {
+            background: #f8f9fa;
+            border-left: 4px solid #25D366;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 4px;
+          }
+          .info-row { margin: 8px 0; color: #495057; }
+          .info-label { font-weight: 600; color: #212529; }
+          .message-history {
+            max-height: 400px;
+            overflow-y: auto;
+            margin-bottom: 20px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border: 1px solid #e0e0e0;
+          }
+          .message {
+            margin: 10px 0;
+            padding: 10px 15px;
+            border-radius: 12px;
+            max-width: 70%;
+            word-wrap: break-word;
+          }
+          .message-incoming {
+            background: #e3f2fd;
+            margin-right: auto;
+            border-bottom-left-radius: 4px;
+          }
+          .message-outgoing {
+            background: #dcf8c6;
+            margin-left: auto;
+            text-align: right;
+            border-bottom-right-radius: 4px;
+          }
+          .message-time { font-size: 11px; color: #666; margin-top: 4px; }
+          .message-sender { font-weight: 600; font-size: 12px; color: #555; margin-bottom: 4px; }
+          textarea {
+            width: 100%;
+            min-height: 150px;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 16px;
+            font-family: inherit;
+            resize: vertical;
+            box-sizing: border-box;
+          }
+          textarea:focus { outline: none; border-color: #25D366; }
+          .button-group { display: flex; gap: 10px; margin-top: 20px; }
+          button {
+            flex: 1;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+          }
+          .send-btn { background: #25D366; color: white; }
+          .send-btn:hover:not(:disabled) {
+            background: #128C7E;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(37, 211, 102, 0.3);
+          }
+          .send-btn:disabled { background: #9ca3af; cursor: not-allowed; }
+          .cancel-btn { background: #f3f4f6; color: #374151; }
+          .cancel-btn:hover { background: #e5e7eb; }
+          .success-message {
+            display: none;
+            background: #10b981;
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 20px;
+            text-align: center;
+            font-weight: 600;
+          }
+          .error-message {
+            display: none;
+            background: #ef4444;
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 20px;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">📱 Reply to WhatsApp</div>
+          <div class="content">
+            <div class="info-box">
+              <div class="info-row"><span class="info-label">Customer:</span> ${customerName}</div>
+              ${customerCompany ? `<div class="info-row"><span class="info-label">Company:</span> ${customerCompany}</div>` : ''}
+              <div class="info-row"><span class="info-label">Phone:</span> ${phone}</div>
+            </div>
+
+            ${formattedHistory.length > 0 ? `
+            <h3>📜 Recent Messages</h3>
+            <div class="message-history" id="messageHistory">
+              ${formattedHistory.map(msg => `
+                <div class="message message-${msg.direction}">
+                  <div class="message-sender">${msg.senderName}</div>
+                  <div class="message-text">${msg.text}</div>
+                  <div class="message-time">${msg.timestamp}</div>
+                </div>
+              `).join('')}
+            </div>
+            ` : '<p style="color: #666;">No recent messages available</p>'}
+
+            <form id="replyForm" action="/reply-wa/${phone}" method="POST">
+              <label for="replyText"><strong>Your Reply:</strong></label>
+              <textarea id="replyText" name="replyText" placeholder="Type your message to the customer..." required></textarea>
+
+              <div class="button-group">
+                <button type="button" class="cancel-btn" onclick="window.close()">Cancel</button>
+                <button type="submit" class="send-btn" id="sendBtn">📤 Send Reply</button>
+              </div>
+            </form>
+
+            <div class="success-message" id="successMessage">
+              ✅ Reply sent successfully! You can close this window.
+            </div>
+            <div class="error-message" id="errorMessage"></div>
+
+            <!-- Close Escalation button -->
+            <form action="/api/close-escalation" method="POST" style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #eee;">
+              <input type="hidden" name="phone" value="${phone}">
+              <input type="hidden" name="redirect" value="/reply-wa/${phone}">
+              <button type="submit" style="
+                width: 100%;
+                padding: 12px;
+                background: #4CAF50;
+                color: white;
+                border: none;
+                border-radius: 8px;
+                font-size: 14px;
+                cursor: pointer;
+              ">
+                ✅ Close Escalation (Allow AI to respond again)
+              </button>
+              <p style="font-size: 12px; color: #666; margin-top: 8px; text-align: center;">
+                Click this when you're done helping the customer.
+              </p>
+            </form>
+
+            ${req.query.sent === 'true' ? '<div style="background: #e8f5e9; color: #2e7d32; padding: 10px; border-radius: 8px; margin-top: 10px; text-align: center;">✅ Message sent!</div>' : ''}
+            ${req.query.escalation_closed === 'true' ? '<div style="background: #e8f5e9; color: #2e7d32; padding: 10px; border-radius: 8px; margin-top: 10px; text-align: center;">✅ Escalation closed! AI will respond to new messages.</div>' : ''}
+          </div>
+        </div>
+
+        <script>
+          const form = document.getElementById('replyForm');
+          const textarea = document.getElementById('replyText');
+          const sendBtn = document.getElementById('sendBtn');
+          const successMessage = document.getElementById('successMessage');
+          const errorMessage = document.getElementById('errorMessage');
+
+          form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            sendBtn.disabled = true;
+            sendBtn.textContent = '🔄 Sending...';
+            errorMessage.style.display = 'none';
+
+            try {
+              const response = await fetch(form.action, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ replyText: textarea.value })
+              });
+
+              const result = await response.json();
+
+              if (result.success) {
+                successMessage.style.display = 'block';
+                form.style.display = 'none';
+              } else {
+                throw new Error(result.error || 'Failed to send reply');
+              }
+            } catch (error) {
+              errorMessage.textContent = '❌ Error: ' + error.message;
+              errorMessage.style.display = 'block';
+              sendBtn.disabled = false;
+              sendBtn.textContent = '📤 Send Reply';
+            }
+          });
+
+          textarea.focus();
+          const messageHistory = document.getElementById('messageHistory');
+          if (messageHistory) {
+            messageHistory.scrollTop = messageHistory.scrollHeight;
+          }
+        </script>
+      </body>
+      </html>
+    `);
+
+  } catch (error) {
+    console.error('[reply-wa] Error:', error.message);
+    res.status(500).send(`
+      <!DOCTYPE html>
+      <html>
+      <head><title>Error</title></head>
+      <body style="font-family: sans-serif; padding: 40px; text-align: center;">
+        <h1>❌ Error</h1>
+        <p>${error.message}</p>
+      </body>
+      </html>
+    `);
+  }
+});
+
+// POST handler for reply-wa
+app.post('/reply-wa/:phone', express.json(), async (req, res) => {
+  const { phone } = req.params;
+  const { replyText } = req.body;
+
+  console.log(`[reply-wa POST] Sending reply to phone: ${phone}`);
+
+  if (!replyText || replyText.trim().length === 0) {
+    return res.status(400).json({
+      success: false,
+      error: 'Reply text is required'
+    });
+  }
+
+  try {
+    // Send via WhatsApp
+    const result = await sendWhatsAppMessage(phone, replyText);
+
+    if (result.success) {
+      // Store in message history
+      const cleanPhone = normalizePhoneNumber(phone);
+      storeMessage(cleanPhone, replyText, 'outgoing', 'whatsapp', {
+        senderName: 'BMAsia Support (Team)',
+        source: 'reply_portal_wa'
+      });
+
+      console.log(`[reply-wa POST] ✅ Reply sent successfully to ${phone}`);
+
+      res.json({
+        success: true,
+        message: 'Reply sent successfully'
+      });
+    } else {
+      throw new Error(result.error || 'Failed to send WhatsApp message');
+    }
+  } catch (error) {
+    console.error('[reply-wa POST] Error:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to send reply'
+    });
+  }
+});
+
 // WhatsApp webhook verification
 app.get('/webhooks/whatsapp', (req, res) => {
   const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN || 'bma_whatsapp_verify_2024';
