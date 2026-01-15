@@ -4,7 +4,9 @@
 
 This document provides Claude Code-specific instructions and best practices for developing the BMAsia Messenger Hub platform.
 
-## Current Status (v1.3-whatsapp-reply-working)
+## Current Status (v1.4-pairing-code-fix)
+
+**Last updated**: 2026-01-15
 
 ### Working Features
 - ✅ Single-space routing (BMA Chat Support)
@@ -17,6 +19,7 @@ This document provides Claude Code-specific instructions and best practices for 
 - ✅ ElevenLabs Conversational AI integration for WhatsApp
 - ✅ **WhatsApp reply from Google Chat portal** (FROZEN - DO NOT MODIFY)
 - ✅ **Customer profile lookup - agent recognizes returning customers** (FROZEN - DO NOT MODIFY)
+- ✅ **Soundtrack zone status with device pairing codes** (uses `device.pairingCode`)
 
 ---
 
@@ -169,6 +172,43 @@ When the ElevenLabs agent escalates to the team, a formatted message appears in 
 **Design decisions:**
 - `escalation_reason` (e.g., "customer_requested") is NOT displayed - issue summary provides sufficient context
 - `formatMessage()` checks `!message.includes('Reply to customer:')` before adding fallback link - prevents duplicate reply links on escalation alerts
+
+---
+
+## Soundtrack Zone Status Proxy
+
+**Status: Working (Updated 2026-01-15)**
+
+The `/api/soundtrack/zone-status` endpoint proxies requests to the Soundtrack Your Brand GraphQL API.
+
+### Pairing Codes (IMPORTANT!)
+
+**Two different codes exist - use the correct one:**
+
+| Code | Field | Format | Purpose |
+|------|-------|--------|---------|
+| ❌ `remoteCode` | `soundZone.remoteCode` | "GZFDAV" | iOS Remote app control |
+| ✅ `pairingCode` | `soundZone.device.pairingCode` | "RRMCBP" | **Device pairing** |
+
+**CRITICAL**: Use `device.pairingCode` NOT `remoteCode` for device pairing!
+
+### Current Implementation (lines 229-390)
+
+```javascript
+// GraphQL query includes device { pairingCode }
+query: `query { soundZone(id: "${zoneId}") { id name isPaired device { pairingCode } playback { state } } }`
+
+// Response includes pairing code when zone is not paired
+if (!zone.isPaired && zone.device?.pairingCode) {
+  responseData.zone.pairing_code = zone.device.pairingCode;
+}
+```
+
+### API Token Access
+
+The Test API token has access to **939 accounts**. Zones not in this list return "not managed by BMAsia".
+
+To add more accounts: Contact Soundtrack Your Brand to update API token permissions.
 
 ---
 
