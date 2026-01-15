@@ -139,6 +139,24 @@ DATABASE_URL=<PostgreSQL connection string>
 
 ---
 
+## Google Chat Escalation Message Format
+
+**Status: Working**
+
+When the ElevenLabs agent escalates to the team, a formatted message appears in Google Chat with:
+- Customer name, phone, company
+- Issue summary
+- Urgency level
+- Reply link to portal
+
+**Key files:**
+- `src/index-simple.js:1220-1270` - Builds escalation alert message
+- `src/services/google-chat-simple.js:165-206` - `formatMessage()` formats for Google Chat
+
+**Note:** The escalation message already includes a reply link. The `formatMessage()` function should NOT add another one (check for existing reply link to avoid duplicates).
+
+---
+
 ## Sub-Agents Usage
 
 **IMPORTANT**: Always use sub-agents when working on specialized tasks. The following sub-agents are available:

@@ -1240,9 +1240,6 @@ app.post('/webhooks/elevenlabs/escalate', async (req, res) => {
     if (issue_summary) {
       alertMessage += `\n❓ *Issue:* ${issue_summary}\n`;
     }
-    if (escalation_reason) {
-      alertMessage += `📝 *Reason:* ${escalation_reason}\n`;
-    }
     if (urgency) {
       const urgencyEmoji = urgency === 'high' ? '🔴' : urgency === 'medium' ? '🟡' : '🟢';
       alertMessage += `${urgencyEmoji} *Urgency:* ${urgency}\n`;

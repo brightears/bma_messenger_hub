@@ -194,11 +194,12 @@ class GoogleChatService {
     formattedMessage += `\n*Message:*\n${message}`;
 
     // Add reply instructions with portal link if conversation ID is provided
+    // Skip if message already contains a reply link (e.g., escalation alerts)
     if (conversationId) {
       const replyUrl = `https://bma-messenger-hub-ooyy.onrender.com/reply/${conversationId}`;
       formattedMessage += `\n\n---\n`;
       formattedMessage += `↩️ *Reply to customer:* <${replyUrl}|Click here>`;
-    } else {
+    } else if (!message.includes('Reply to customer:')) {
       formattedMessage += `\n\n---\n↩️ *Reply:* Processing link...`;
     }
 
