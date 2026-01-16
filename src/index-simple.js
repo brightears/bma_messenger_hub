@@ -20,7 +20,7 @@ const { getStats, getConversation, getConversationByUser, storeConversation, get
 const { startPolling, stopPolling, getStatus: getPollingStatus, getStats: getPollingStats } = require('./services/google-chat-poller');
 const { storeMessage, getHistory, formatForDisplay, normalizePhoneNumber, clearOutgoingMessages } = require('./services/message-history');
 const { getProfile, saveProfile, getStats: getProfileStats } = require('./services/customer-profiles');
-const { markEscalated, isEscalated, getEscalationInfo, clearEscalation, getAllEscalated } = require('./services/escalation-store');
+const { markEscalated, isEscalated, getEscalationInfo, clearEscalation, getAllEscalated, extendEscalation, getRemainingTime, ESCALATION_TIMEOUT_MS } = require('./services/escalation-store');
 
 // Customer info and AI gathering services
 const {
@@ -1034,6 +1034,465 @@ app.post('/reply-wa/:phone', express.json(), async (req, res) => {
   }
 });
 
+// =====================================================
+// LIVE REPLY CHAT - Real-time conversation interface
+// =====================================================
+
+// API endpoint for fetching messages (used by live chat polling)
+app.get('/api/messages/:phone', async (req, res) => {
+  const { phone } = req.params;
+
+  try {
+    const history = getHistory(phone) || [];
+    const escalationInfo = getEscalationInfo(phone);
+    const customerProfile = await getProfile(phone);
+    const remainingTime = getRemainingTime(phone);
+    const isCurrentlyEscalated = isEscalated(phone);
+
+    const customerName = customerProfile?.name || escalationInfo?.customerName || phone;
+    const customerCompany = customerProfile?.company || null;
+
+    const messages = history.map(msg => ({
+      text: msg.text || '',
+      direction: msg.direction,
+      timestamp: msg.timestamp,
+      formattedTime: new Date(msg.timestamp).toLocaleTimeString('en-US', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+        timeZone: 'Asia/Bangkok'
+      }),
+      senderName: msg.direction === 'incoming' ? customerName : 'BMAsia Support'
+    })).filter(m => m.text.trim());
+
+    res.json({
+      success: true,
+      messages,
+      customerName,
+      customerCompany,
+      isEscalated: isCurrentlyEscalated,
+      remainingTimeMs: remainingTime,
+      escalationTimeoutMs: ESCALATION_TIMEOUT_MS
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Live chat interface - auto-refreshes messages
+app.get('/reply-live/:phone', async (req, res) => {
+  const { phone } = req.params;
+  console.log(`[reply-live] Loading live chat for phone: ${phone}`);
+
+  try {
+    const escalationInfo = getEscalationInfo(phone);
+    const customerProfile = await getProfile(phone);
+    const customerName = customerProfile?.name || escalationInfo?.customerName || phone;
+    const customerCompany = customerProfile?.company || null;
+
+    res.send(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Chat with ${customerName}</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <style>
+          * { box-sizing: border-box; margin: 0; padding: 0; }
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f0f2f5;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+          }
+          .header {
+            background: #075E54;
+            color: white;
+            padding: 15px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+          }
+          .header-left h1 {
+            font-size: 18px;
+            font-weight: 600;
+          }
+          .header-left .subtitle {
+            font-size: 12px;
+            opacity: 0.8;
+            margin-top: 2px;
+          }
+          .status-badge {
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+          }
+          .status-escalated {
+            background: #fef3c7;
+            color: #92400e;
+          }
+          .status-normal {
+            background: #d1fae5;
+            color: #065f46;
+          }
+          .timer {
+            font-size: 11px;
+            margin-top: 4px;
+          }
+          .messages-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            background: #e5ddd5;
+            background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23000000' fill-opacity='0.02'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+          }
+          .message {
+            margin: 8px 0;
+            padding: 8px 12px;
+            border-radius: 8px;
+            max-width: 75%;
+            word-wrap: break-word;
+            position: relative;
+            box-shadow: 0 1px 0.5px rgba(0,0,0,0.13);
+          }
+          .message-incoming {
+            background: white;
+            margin-right: auto;
+            border-top-left-radius: 0;
+          }
+          .message-outgoing {
+            background: #dcf8c6;
+            margin-left: auto;
+            border-top-right-radius: 0;
+          }
+          .message-text { font-size: 14px; line-height: 1.4; }
+          .message-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 4px;
+          }
+          .message-sender { font-weight: 600; font-size: 11px; color: #075E54; }
+          .message-time { font-size: 11px; color: #667781; }
+          .input-container {
+            background: #f0f2f5;
+            padding: 10px 20px;
+            display: flex;
+            gap: 10px;
+            align-items: flex-end;
+          }
+          .input-box {
+            flex: 1;
+            background: white;
+            border-radius: 25px;
+            padding: 10px 15px;
+            display: flex;
+            align-items: center;
+          }
+          textarea {
+            flex: 1;
+            border: none;
+            outline: none;
+            font-size: 15px;
+            resize: none;
+            max-height: 100px;
+            font-family: inherit;
+          }
+          .send-btn {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background: #075E54;
+            border: none;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s;
+          }
+          .send-btn:hover { background: #128C7E; }
+          .send-btn:disabled { background: #9ca3af; cursor: not-allowed; }
+          .send-btn svg { width: 24px; height: 24px; fill: white; }
+          .notification {
+            position: fixed;
+            top: 70px;
+            right: 20px;
+            padding: 12px 20px;
+            border-radius: 8px;
+            font-size: 14px;
+            animation: slideIn 0.3s ease;
+            z-index: 100;
+          }
+          .notification-success { background: #10b981; color: white; }
+          .notification-error { background: #ef4444; color: white; }
+          @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+          }
+          .new-message-indicator {
+            display: none;
+            position: fixed;
+            bottom: 80px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #075E54;
+            color: white;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 13px;
+            cursor: pointer;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+          }
+          .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: #667781;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <div class="header-left">
+            <h1>📱 ${customerName}</h1>
+            <div class="subtitle">${customerCompany ? customerCompany + ' • ' : ''}${phone}</div>
+          </div>
+          <div>
+            <div class="status-badge" id="statusBadge">Loading...</div>
+            <div class="timer" id="timerDisplay"></div>
+          </div>
+        </div>
+
+        <div class="messages-container" id="messagesContainer">
+          <div class="empty-state" id="emptyState">Loading messages...</div>
+        </div>
+
+        <div class="new-message-indicator" id="newMessageIndicator" onclick="scrollToBottom()">
+          ↓ New messages
+        </div>
+
+        <div class="input-container">
+          <div class="input-box">
+            <textarea id="messageInput" placeholder="Type a message..." rows="1" onkeydown="handleKeyDown(event)"></textarea>
+          </div>
+          <button class="send-btn" id="sendBtn" onclick="sendMessage()">
+            <svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+          </button>
+        </div>
+
+        <script>
+          const phone = '${phone}';
+          let lastMessageCount = 0;
+          let isAtBottom = true;
+          let remainingTimeMs = 0;
+          let timerInterval = null;
+
+          // Track scroll position
+          const container = document.getElementById('messagesContainer');
+          container.addEventListener('scroll', () => {
+            const threshold = 100;
+            isAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight < threshold;
+            if (isAtBottom) {
+              document.getElementById('newMessageIndicator').style.display = 'none';
+            }
+          });
+
+          function scrollToBottom() {
+            container.scrollTop = container.scrollHeight;
+            document.getElementById('newMessageIndicator').style.display = 'none';
+          }
+
+          function formatTime(ms) {
+            if (ms <= 0) return '0:00';
+            const minutes = Math.floor(ms / 60000);
+            const seconds = Math.floor((ms % 60000) / 1000);
+            return minutes + ':' + seconds.toString().padStart(2, '0');
+          }
+
+          function updateTimer() {
+            if (remainingTimeMs > 0) {
+              remainingTimeMs -= 1000;
+              document.getElementById('timerDisplay').textContent = 'Agent resumes in ' + formatTime(remainingTimeMs);
+              if (remainingTimeMs <= 0) {
+                fetchMessages(); // Refresh status
+              }
+            }
+          }
+
+          async function fetchMessages() {
+            try {
+              const res = await fetch('/api/messages/' + phone);
+              const data = await res.json();
+
+              if (!data.success) throw new Error(data.error);
+
+              // Update status badge
+              const badge = document.getElementById('statusBadge');
+              if (data.isEscalated) {
+                badge.className = 'status-badge status-escalated';
+                badge.textContent = '⏸️ Escalated';
+                remainingTimeMs = data.remainingTimeMs;
+                document.getElementById('timerDisplay').textContent = 'Agent resumes in ' + formatTime(remainingTimeMs);
+              } else {
+                badge.className = 'status-badge status-normal';
+                badge.textContent = '🤖 AI Active';
+                document.getElementById('timerDisplay').textContent = '';
+                remainingTimeMs = 0;
+              }
+
+              // Update messages
+              const messagesHtml = data.messages.length > 0 ? data.messages.map(msg =>
+                '<div class="message message-' + msg.direction + '">' +
+                  '<div class="message-text">' + escapeHtml(msg.text) + '</div>' +
+                  '<div class="message-meta">' +
+                    '<span class="message-sender">' + escapeHtml(msg.senderName) + '</span>' +
+                    '<span class="message-time">' + msg.formattedTime + '</span>' +
+                  '</div>' +
+                '</div>'
+              ).join('') : '<div class="empty-state">No messages yet</div>';
+
+              container.innerHTML = messagesHtml;
+
+              // Handle new messages
+              if (data.messages.length > lastMessageCount && lastMessageCount > 0) {
+                if (isAtBottom) {
+                  scrollToBottom();
+                } else {
+                  document.getElementById('newMessageIndicator').style.display = 'block';
+                }
+              }
+              lastMessageCount = data.messages.length;
+
+              // Auto-scroll on first load
+              if (lastMessageCount === data.messages.length && isAtBottom) {
+                scrollToBottom();
+              }
+
+            } catch (error) {
+              console.error('Error fetching messages:', error);
+            }
+          }
+
+          function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+          }
+
+          function showNotification(message, type) {
+            const existing = document.querySelector('.notification');
+            if (existing) existing.remove();
+
+            const notif = document.createElement('div');
+            notif.className = 'notification notification-' + type;
+            notif.textContent = message;
+            document.body.appendChild(notif);
+
+            setTimeout(() => notif.remove(), 3000);
+          }
+
+          function handleKeyDown(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              sendMessage();
+            }
+          }
+
+          async function sendMessage() {
+            const input = document.getElementById('messageInput');
+            const text = input.value.trim();
+            if (!text) return;
+
+            const sendBtn = document.getElementById('sendBtn');
+            sendBtn.disabled = true;
+
+            try {
+              const res = await fetch('/reply-live/' + phone, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ replyText: text })
+              });
+              const data = await res.json();
+
+              if (data.success) {
+                input.value = '';
+                showNotification('Message sent!', 'success');
+                fetchMessages(); // Refresh immediately
+              } else {
+                throw new Error(data.error);
+              }
+            } catch (error) {
+              showNotification('Failed to send: ' + error.message, 'error');
+            } finally {
+              sendBtn.disabled = false;
+              input.focus();
+            }
+          }
+
+          // Initial fetch and polling
+          fetchMessages();
+          setInterval(fetchMessages, 3000); // Poll every 3 seconds
+          timerInterval = setInterval(updateTimer, 1000); // Update timer every second
+
+          // Auto-resize textarea
+          const textarea = document.getElementById('messageInput');
+          textarea.addEventListener('input', function() {
+            this.style.height = 'auto';
+            this.style.height = Math.min(this.scrollHeight, 100) + 'px';
+          });
+        </script>
+      </body>
+      </html>
+    `);
+  } catch (error) {
+    console.error('[reply-live] Error:', error.message);
+    res.status(500).send('Error: ' + error.message);
+  }
+});
+
+// POST handler for live chat - sends message AND extends escalation timer
+app.post('/reply-live/:phone', express.json(), async (req, res) => {
+  const { phone } = req.params;
+  const { replyText } = req.body;
+
+  console.log(`[reply-live POST] Sending reply to phone: ${phone}`);
+
+  if (!replyText || replyText.trim().length === 0) {
+    return res.status(400).json({ success: false, error: 'Reply text is required' });
+  }
+
+  try {
+    // Send via WhatsApp
+    const result = await sendWhatsAppMessage(phone, replyText);
+
+    if (result.success) {
+      // Store in message history
+      const cleanPhone = normalizePhoneNumber(phone);
+      storeMessage(cleanPhone, replyText, 'outgoing', 'whatsapp', {
+        senderName: 'BMAsia Support (Team)',
+        source: 'reply_live'
+      });
+
+      // Extend escalation timer - gives team 10 more minutes
+      extendEscalation(phone);
+
+      console.log(`[reply-live POST] ✅ Reply sent, escalation timer extended for ${phone}`);
+
+      res.json({ success: true, message: 'Reply sent successfully' });
+    } else {
+      throw new Error(result.error || 'Failed to send WhatsApp message');
+    }
+  } catch (error) {
+    console.error('[reply-live POST] Error:', error.message);
+    res.status(500).json({ success: false, error: error.message || 'Failed to send reply' });
+  }
+});
+
+// =====================================================
+// WHATSAPP WEBHOOKS
+// =====================================================
+
 // WhatsApp webhook verification
 app.get('/webhooks/whatsapp', (req, res) => {
   const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN || 'bma_whatsapp_verify_2024';
@@ -1193,42 +1652,20 @@ app.post('/webhooks/whatsapp', async (req, res) => {
       }
 
       // ============================================================
-      // WHATSAPP → GOOGLE CHAT FORWARDING
-      // Only forwards messages when agent is archived (escalation active)
-      // When agent is active, ElevenLabs handles conversations normally
+      // ESCALATION HANDLING
+      // Messages are stored in message-history and visible in /reply-live interface
+      // We do NOT forward individual messages to Google Chat (too noisy)
+      // Google Chat only receives the initial escalation alert
       // ============================================================
 
-      // Check if ANY escalation is active (agent is archived)
-      const hasActiveEscalation = getAllEscalated().length > 0;
+      // Check if this customer is escalated
+      const escalationInfo = getEscalationInfo(phoneNumber);
 
-      if (hasActiveEscalation) {
-        // Agent is offline - forward message to Google Chat for manual handling
-        console.log('⚠️ Agent is archived - forwarding WhatsApp message to Google Chat');
-
-        // Check if THIS customer is escalated (to route to their thread)
-        const escalationInfo = getEscalationInfo(phoneNumber);
-
-        // Build the forwarding message
-        const forwardMessage = `📱 *WhatsApp Message Received*\n\n` +
-          `👤 From: ${parsedMessage.senderName || phoneNumber}\n` +
-          `📞 Phone: ${phoneNumber}\n\n` +
-          `💬 Message:\n${parsedMessage.messageText}\n\n` +
-          `---\n` +
-          `⚠️ _Agent is offline. Respond via reply portal._\n` +
-          `↩️ <https://bma-messenger-hub-ooyy.onrender.com/reply-wa/${phoneNumber}|Reply to customer>`;
-
-        try {
-          await sendMessage(SINGLE_SPACE_ID, forwardMessage, {
-            platform: 'whatsapp',
-            senderName: parsedMessage.senderName || 'WhatsApp Customer',
-            messageType: 'forwarded_message',
-            isUrgent: false
-          });
-          console.log('✅ WhatsApp message forwarded to Google Chat');
-        } catch (forwardErr) {
-          console.error('Failed to forward WhatsApp message to Google Chat:', forwardErr.message);
-        }
+      if (escalationInfo) {
+        // Customer is escalated - message already stored, team sees it in live chat
+        console.log(`📥 WhatsApp message from escalated customer ${phoneNumber} - visible in live chat`);
       } else {
+        // Normal flow - ElevenLabs handles response
         console.log('WhatsApp message received - ElevenLabs handles response');
       }
 
@@ -1715,14 +2152,18 @@ app.post('/webhooks/elevenlabs/escalate', async (req, res) => {
     }
 
     if (conversation) {
-      // IMPORTANT: Use ElevenLabs conversation_id if available - survives deploys!
-      // Fall back to local conversation.id for backward compatibility
-      if (conversation_id) {
+      // Use /reply-live with phone number for the best experience
+      // Falls back to ElevenLabs conversation_id or local ID if no phone
+      if (actualPhone) {
+        const cleanPhone = actualPhone.replace(/^\+/, '');
+        replyLink = `https://bma-messenger-hub-ooyy.onrender.com/reply-live/${cleanPhone}`;
+        console.log(`Reply link (live chat): ${replyLink}`);
+      } else if (conversation_id) {
         replyLink = `https://bma-messenger-hub-ooyy.onrender.com/reply-el/${conversation_id}`;
-        console.log(`Reply link (ElevenLabs-based): ${replyLink}`);
+        console.log(`Reply link (ElevenLabs-based fallback): ${replyLink}`);
       } else {
         replyLink = `https://bma-messenger-hub-ooyy.onrender.com/reply/${conversation.id}`;
-        console.log(`Reply link (local): ${replyLink}`);
+        console.log(`Reply link (local fallback): ${replyLink}`);
       }
 
       // Now store the parsed messages using the conversation's userId as the storage key
