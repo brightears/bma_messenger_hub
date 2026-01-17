@@ -484,6 +484,9 @@ app.post('/api/customer-lookup', async (req, res) => {
     let { phone, conversation_id } = req.body;
     console.log(`📋 Customer profile lookup - phone: ${phone}, conversation_id: ${conversation_id}`);
 
+    // Track if this is a voice call (detected from ElevenLabs metadata)
+    let isVoiceCall = false;
+
     // If conversation_id provided (from ElevenLabs dynamic variable), fetch phone from ElevenLabs API
     if (!phone && conversation_id) {
       console.log(`📋 Fetching phone from ElevenLabs conversation: ${conversation_id}`);
@@ -494,6 +497,12 @@ app.post('/api/customer-lookup', async (req, res) => {
           { headers: { 'xi-api-key': ELEVENLABS_API_KEY } }
         );
         phone = convResponse.data?.metadata?.whatsapp?.whatsapp_user_id;
+
+        // Detect voice call from has_audio or call_duration
+        isVoiceCall = convResponse.data?.has_audio === true ||
+                      (convResponse.data?.metadata?.call_duration_secs || 0) > 0;
+        console.log(`📋 Channel detection: is_voice_call=${isVoiceCall} (has_audio=${convResponse.data?.has_audio}, call_duration=${convResponse.data?.metadata?.call_duration_secs || 0})`);
+
         if (phone) {
           console.log(`📋 Found phone from conversation: ${phone}`);
         } else {
@@ -508,6 +517,7 @@ app.post('/api/customer-lookup', async (req, res) => {
       return res.json({
         success: false,
         found: false,
+        is_voice_call: isVoiceCall,
         message: 'Could not determine phone number'
       });
     }
@@ -549,6 +559,7 @@ app.post('/api/customer-lookup', async (req, res) => {
           email: profile.email || null
         },
         is_escalated: escalated,
+        is_voice_call: isVoiceCall,
         escalation_message: escalated
           ? 'This customer has an open escalation. A team member is handling their request. Do NOT try to help - just tell them a colleague will respond shortly.'
           : null,
@@ -564,6 +575,7 @@ app.post('/api/customer-lookup', async (req, res) => {
       found: false,
       customer: null,
       is_escalated: escalated,
+      is_voice_call: isVoiceCall,
       escalation_message: escalated
         ? 'This customer has an open escalation. A team member is handling their request. Do NOT try to help - just tell them a colleague will respond shortly.'
         : null,
@@ -575,6 +587,7 @@ app.post('/api/customer-lookup', async (req, res) => {
     return res.json({
       success: false,
       found: false,
+      is_voice_call: false,
       error: error.message
     });
   }
