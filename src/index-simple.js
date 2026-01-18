@@ -498,10 +498,18 @@ app.post('/api/customer-lookup', async (req, res) => {
         );
         phone = convResponse.data?.metadata?.whatsapp?.whatsapp_user_id;
 
-        // Detect voice call from has_audio or call_duration
-        isVoiceCall = convResponse.data?.has_audio === true ||
-                      (convResponse.data?.metadata?.call_duration_secs || 0) > 0;
-        console.log(`📋 Channel detection: is_voice_call=${isVoiceCall} (has_audio=${convResponse.data?.has_audio}, call_duration=${convResponse.data?.metadata?.call_duration_secs || 0})`);
+        // Detect voice call from source_medium in transcript (works DURING active calls)
+        // has_audio is only true AFTER call ends, but source_medium is available immediately
+        const transcript = convResponse.data?.transcript || [];
+        const userMessages = transcript.filter(t => t.role === 'user');
+        isVoiceCall = userMessages.some(msg => msg.source_medium === 'audio');
+
+        // Fallback: check has_audio for completed calls (when transcript might be empty)
+        if (!isVoiceCall && convResponse.data?.has_audio === true) {
+          isVoiceCall = true;
+        }
+
+        console.log(`📋 Channel detection: is_voice_call=${isVoiceCall} (source_medium check on ${userMessages.length} messages, has_audio=${convResponse.data?.has_audio})`);
 
         if (phone) {
           console.log(`📋 Found phone from conversation: ${phone}`);
