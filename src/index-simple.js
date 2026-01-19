@@ -478,6 +478,19 @@ app.get('/api/customer-stats', async (req, res) => {
   });
 });
 
+// Helper: Get Thailand time and business hours status
+function getThailandTimeInfo() {
+  const now = new Date();
+  // Thailand is UTC+7
+  const thailandTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Bangkok' }));
+  const hour = thailandTime.getHours();
+  const minutes = thailandTime.getMinutes().toString().padStart(2, '0');
+  const timeStr = `${hour}:${minutes}`;
+  // Business hours: 8 AM to 9 PM (08:00 - 21:00)
+  const isBusinessHours = hour >= 8 && hour < 21;
+  return { thailand_time: timeStr, is_business_hours: isBusinessHours };
+}
+
 // Customer Profile Lookup API - POST version for ElevenLabs tool
 // v2.0: Text-only mode (voice disabled)
 app.post('/api/customer-lookup', async (req, res) => {
@@ -540,6 +553,9 @@ app.post('/api/customer-lookup', async (req, res) => {
       console.log(`⚠️ Customer ${phone} has an OPEN ESCALATION - agent should defer to team`);
     }
 
+    // Get Thailand time info for business hours awareness
+    const timeInfo = getThailandTimeInfo();
+
     if (profile && (profile.name || profile.company || profile.email)) {
       console.log(`✅ Found returning customer: ${profile.name || phone}`);
       return res.json({
@@ -554,6 +570,7 @@ app.post('/api/customer-lookup', async (req, res) => {
         escalation_message: escalated
           ? 'This customer has an open escalation. A team member is handling their request. Call skip_turn immediately.'
           : null,
+        ...timeInfo,
         message: profile.name
           ? `This is a returning customer: ${profile.name}${profile.company ? ` from ${profile.company}` : ''}`
           : 'Customer info found on file'
@@ -569,6 +586,7 @@ app.post('/api/customer-lookup', async (req, res) => {
       escalation_message: escalated
         ? 'This customer has an open escalation. A team member is handling their request. Call skip_turn immediately.'
         : null,
+      ...timeInfo,
       message: 'This is a new customer, no previous info on file'
     });
 
