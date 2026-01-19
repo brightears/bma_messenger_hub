@@ -479,13 +479,11 @@ app.get('/api/customer-stats', async (req, res) => {
 });
 
 // Customer Profile Lookup API - POST version for ElevenLabs tool
+// v2.0: Text-only mode (voice disabled)
 app.post('/api/customer-lookup', async (req, res) => {
   try {
     let { phone, conversation_id } = req.body;
     console.log(`📋 Customer profile lookup - phone: ${phone}, conversation_id: ${conversation_id}`);
-
-    // Track if this is a voice call (detected from ElevenLabs metadata)
-    let isVoiceCall = false;
 
     // If conversation_id provided (from ElevenLabs dynamic variable), fetch phone from ElevenLabs API
     if (!phone && conversation_id) {
@@ -497,19 +495,6 @@ app.post('/api/customer-lookup', async (req, res) => {
           { headers: { 'xi-api-key': ELEVENLABS_API_KEY } }
         );
         phone = convResponse.data?.metadata?.whatsapp?.whatsapp_user_id;
-
-        // Detect voice call from source_medium in transcript (works DURING active calls)
-        // has_audio is only true AFTER call ends, but source_medium is available immediately
-        const transcript = convResponse.data?.transcript || [];
-        const userMessages = transcript.filter(t => t.role === 'user');
-        isVoiceCall = userMessages.some(msg => msg.source_medium === 'audio');
-
-        // Fallback: check has_audio for completed calls (when transcript might be empty)
-        if (!isVoiceCall && convResponse.data?.has_audio === true) {
-          isVoiceCall = true;
-        }
-
-        console.log(`📋 Channel detection: is_voice_call=${isVoiceCall} (source_medium check on ${userMessages.length} messages, has_audio=${convResponse.data?.has_audio})`);
 
         if (phone) {
           console.log(`📋 Found phone from conversation: ${phone}`);
@@ -525,7 +510,6 @@ app.post('/api/customer-lookup', async (req, res) => {
       return res.json({
         success: false,
         found: false,
-        is_voice_call: isVoiceCall,
         message: 'Could not determine phone number'
       });
     }
@@ -567,9 +551,8 @@ app.post('/api/customer-lookup', async (req, res) => {
           email: profile.email || null
         },
         is_escalated: escalated,
-        is_voice_call: isVoiceCall,
         escalation_message: escalated
-          ? 'This customer has an open escalation. A team member is handling their request. Do NOT try to help - just tell them a colleague will respond shortly.'
+          ? 'This customer has an open escalation. A team member is handling their request. Call skip_turn immediately.'
           : null,
         message: profile.name
           ? `This is a returning customer: ${profile.name}${profile.company ? ` from ${profile.company}` : ''}`
@@ -583,9 +566,8 @@ app.post('/api/customer-lookup', async (req, res) => {
       found: false,
       customer: null,
       is_escalated: escalated,
-      is_voice_call: isVoiceCall,
       escalation_message: escalated
-        ? 'This customer has an open escalation. A team member is handling their request. Do NOT try to help - just tell them a colleague will respond shortly.'
+        ? 'This customer has an open escalation. A team member is handling their request. Call skip_turn immediately.'
         : null,
       message: 'This is a new customer, no previous info on file'
     });
@@ -595,7 +577,6 @@ app.post('/api/customer-lookup', async (req, res) => {
     return res.json({
       success: false,
       found: false,
-      is_voice_call: false,
       error: error.message
     });
   }
