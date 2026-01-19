@@ -582,6 +582,83 @@ app.post('/api/customer-lookup', async (req, res) => {
   }
 });
 
+// Save Customer Profile API - for ElevenLabs agent to save customer info
+// Uses conversation_id to get phone (same pattern as customer-lookup)
+app.post('/api/save-customer-profile', async (req, res) => {
+  try {
+    let { conversation_id, name, company, email } = req.body;
+    console.log(`💾 Save customer profile from agent - conversation_id: ${conversation_id}`);
+    console.log(`   Data: name=${name}, company=${company}, email=${email}`);
+
+    if (!conversation_id) {
+      return res.json({
+        success: false,
+        message: 'No conversation_id provided'
+      });
+    }
+
+    // Fetch phone from ElevenLabs conversation (same as customer-lookup)
+    const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY || 'sk_42e0e37fe9ef457906b11dce0ac6ea5262a005ec2ce0ca6e';
+    let phone = null;
+
+    try {
+      const convResponse = await axios.get(
+        `https://api.elevenlabs.io/v1/convai/conversations/${conversation_id}`,
+        { headers: { 'xi-api-key': ELEVENLABS_API_KEY } }
+      );
+      phone = convResponse.data?.metadata?.whatsapp?.whatsapp_user_id;
+      if (phone) {
+        console.log(`📋 Found phone from conversation: ${phone}`);
+      }
+    } catch (err) {
+      console.log(`📋 Could not fetch phone from conversation: ${err.message}`);
+    }
+
+    if (!phone) {
+      return res.json({
+        success: false,
+        message: 'Could not determine phone number from conversation'
+      });
+    }
+
+    // Only save if we have at least some info
+    if (!name && !company && !email) {
+      return res.json({
+        success: false,
+        message: 'No customer info provided (need at least name, company, or email)'
+      });
+    }
+
+    // Save to PostgreSQL
+    const profile = await saveProfile(phone, { name, company, email });
+
+    if (profile) {
+      console.log(`✅ Customer profile saved for ${phone}: ${name} from ${company}`);
+      return res.json({
+        success: true,
+        message: `Great, I'll remember that${name ? ` ${name}` : ''}${company ? ` from ${company}` : ''} for next time!`,
+        saved: {
+          name: profile.name || null,
+          company: profile.company || null,
+          email: profile.email || null
+        }
+      });
+    }
+
+    return res.json({
+      success: false,
+      message: 'Could not save profile'
+    });
+
+  } catch (error) {
+    console.error('Save customer profile error:', error.message);
+    return res.json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 // Close Escalation API - allows team to close escalation and let agent respond again
 app.post('/api/close-escalation', async (req, res) => {
   const { phone, redirect } = req.body;
