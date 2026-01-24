@@ -2320,6 +2320,10 @@ app.post('/webhooks/elevenlabs/escalate', async (req, res) => {
       }
     }
 
+    // Determine source: WhatsApp if phone exists, otherwise Website
+    const source = actualPhone ? 'WhatsApp' : 'Website';
+    console.log(`📍 Escalation source: ${source}`);
+
     // Format escalation alert for Google Chat
     let alertMessage = '🚨 *Escalation Alert - Customer Needs Assistance*\n\n';
 
@@ -2335,6 +2339,10 @@ app.post('/webhooks/elevenlabs/escalate', async (req, res) => {
     if (customer_email) {
       alertMessage += `📧 *Email:* ${customer_email}\n`;
     }
+
+    // Add source indicator
+    alertMessage += `\n🌐 *Source:* ${source}\n`;
+
     if (issue_summary) {
       alertMessage += `\n❓ *Issue:* ${issue_summary}\n`;
     }
@@ -2346,16 +2354,18 @@ app.post('/webhooks/elevenlabs/escalate', async (req, res) => {
       alertMessage += `\n🔗 ElevenLabs Conv: \`${conversation_id}\`\n`;
     }
 
-    // Add reply link - use portal for team responses (not direct WhatsApp)
+    // Add reply link - use portal for WhatsApp, email instruction for Website
     alertMessage += '\n---\n';
-    if (replyLink) {
+    if (source === 'WhatsApp' && replyLink) {
       alertMessage += `↩️ *Reply to customer:* <${replyLink}|Click here to respond>\n`;
+    } else if (customer_email) {
+      alertMessage += `↩️ *Reply to customer:* Email them at ${customer_email}\n`;
     } else {
-      alertMessage += '_Reply link not available - check recent messages in this space._\n';
+      alertMessage += '_No reply method available - customer did not provide contact info._\n';
     }
 
-    // Add Close Escalation link (allows team to re-enable agent)
-    if (actualPhone) {
+    // Close Escalation link - only show for WhatsApp (website escalations auto-close)
+    if (source === 'WhatsApp' && actualPhone) {
       const closeEscalationUrl = `https://bma-messenger-hub-ooyy.onrender.com/api/close-escalation-web?phone=${encodeURIComponent(actualPhone)}`;
       alertMessage += `✅ *Done helping?* <${closeEscalationUrl}|Close Escalation>`;
     }
