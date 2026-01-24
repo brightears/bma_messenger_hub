@@ -166,6 +166,7 @@ app.get('/', (req, res) => {
       elevenlabs: '/webhooks/elevenlabs',
       elevenlabsLogResponse: '/webhooks/elevenlabs/log-response',
       elevenlabsEscalate: '/webhooks/elevenlabs/escalate',
+      leadCapture: '/webhooks/lead-capture',
       soundtrackZoneStatus: '/api/soundtrack/zone-status',
       health: '/health',
       polling: {
@@ -2434,6 +2435,81 @@ app.post('/webhooks/elevenlabs/escalate', async (req, res) => {
     }
   } catch (error) {
     console.error('Error processing escalation webhook:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Lead Capture webhook - receives leads from website chat (progressive profiling)
+// This is different from escalation - customer didn't ask for human help,
+// but AI collected their email during conversation for follow-up
+app.post('/webhooks/lead-capture', async (req, res) => {
+  try {
+    console.log('📊 Lead capture webhook received');
+    console.log('Request body:', JSON.stringify(req.body, null, 2));
+
+    const {
+      email,
+      name,
+      company,
+      conversationSummary,
+      locale,
+      source = 'website_chat'
+    } = req.body;
+
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        error: 'Email is required'
+      });
+    }
+
+    // Format lead notification for Google Chat
+    let alertMessage = '📊 *New Website Lead*\n\n';
+
+    if (name) {
+      alertMessage += `👤 *Name:* ${name}\n`;
+    }
+    if (company) {
+      alertMessage += `🏢 *Company:* ${company}\n`;
+    }
+    alertMessage += `📧 *Email:* ${email}\n`;
+    alertMessage += `\n🌐 *Source:* ${source}\n`;
+
+    if (locale) {
+      alertMessage += `🌍 *Language:* ${locale}\n`;
+    }
+
+    if (conversationSummary) {
+      // Truncate summary if too long
+      const truncatedSummary = conversationSummary.length > 500
+        ? conversationSummary.slice(0, 500) + '...'
+        : conversationSummary;
+      alertMessage += `\n💬 *Recent conversation:*\n\`\`\`${truncatedSummary}\`\`\`\n`;
+    }
+
+    alertMessage += '\n---\n';
+    alertMessage += `📝 _Lead captured during chat conversation (no escalation requested)_\n`;
+    alertMessage += `↩️ *Follow up:* Email them at ${email}`;
+
+    // Send to Google Chat
+    await sendMessage(SINGLE_SPACE_ID, alertMessage, {
+      platform: 'website',
+      senderName: 'Website Lead Capture',
+      messageType: 'lead_capture',
+      isUrgent: false
+    });
+
+    console.log('✅ Lead capture notification sent to Google Chat');
+
+    res.json({
+      success: true,
+      message: 'Lead captured and notification sent'
+    });
+  } catch (error) {
+    console.error('Error processing lead capture webhook:', error);
     res.status(500).json({
       success: false,
       error: error.message
