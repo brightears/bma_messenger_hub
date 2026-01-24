@@ -2392,6 +2392,20 @@ app.post('/webhooks/elevenlabs/escalate', async (req, res) => {
         );
         console.log(`✅ Phone ${actualPhone} marked as escalated`);
 
+        // Send immediate acknowledgment to WhatsApp customer so they know we're on it
+        try {
+          const { is_business_hours } = getThailandTimeInfo();
+          const ackMessage = is_business_hours
+            ? "Thanks for your patience! I've passed this to my colleague. They usually reply within a few minutes, but if they're busy with another customer, expect a response within an hour."
+            : "Thanks for your patience! I've passed this to my colleague. Since it's outside business hours (8 AM - 9 PM Thailand time), they'll get back to you first thing in the morning.";
+
+          await sendWhatsAppMessage(actualPhone, ackMessage);
+          console.log('✅ Sent escalation acknowledgment to WhatsApp');
+        } catch (ackError) {
+          console.error('Failed to send escalation acknowledgment:', ackError.message);
+          // Non-blocking - don't fail escalation if ack fails
+        }
+
         // Archive the ElevenLabs agent to stop ALL responses during escalation
         try {
           const archiveRes = await fetch(
