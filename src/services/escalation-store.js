@@ -1,11 +1,11 @@
 /**
  * Escalation Store Service
  * Tracks phone numbers that have been escalated to human team
- * Auto-expires after 10 minutes - agent resumes if team doesn't respond
+ * Auto-expires after 15 minutes - agent resumes if team doesn't respond
  * Timer resets each time team sends a reply
  */
 
-const ESCALATION_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
+const ESCALATION_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes
 
 /**
  * Normalize phone number to a consistent format for storage and lookup
