@@ -5,7 +5,7 @@ const express = require('express');
 const multer = require('multer');
 const crypto = require('crypto');
 const axios = require('axios');
-const { sendMessage } = require('./services/google-chat-simple');
+const { sendMessage, loadSpaceMembers, getMentionForEmail } = require('./services/google-chat-simple');
 const { parseWhatsAppMessage, parseLineMessage, isValidMessage } = require('./services/message-processor');
 // Removed message router - using single space now
 const { translateMessage, healthCheck: translatorHealthCheck } = require('./services/translator');
@@ -2026,6 +2026,30 @@ app.post('/webhooks/elevenlabs/log-response', async (req, res) => {
   }
 });
 
+// Team routing: determine who should handle an escalation based on keywords
+function getAssignedTeamMember(issueSummary, escalationReason) {
+  const text = `${issueSummary || ''} ${escalationReason || ''}`.toLowerCase();
+
+  const routing = [
+    { keywords: ['invoice', 'billing', 'payment', 'receipt', 'overdue'], name: 'Pom', email: 'pom@bmasiamusic.com' },
+    { keywords: ['contract', 'legal', 'agreement', 'terms', 'cancellation'], name: 'Norbert', email: 'norbert@bmasiamusic.com' },
+    { keywords: ['technical', 'support', 'issue', 'problem', 'error', 'not working', 'offline', 'pairing', 'device', 'troubleshoot', 'volume', 'no sound'], name: 'Keith', email: 'keith@bmasiamusic.com' },
+    { keywords: ['music design', 'playlist', 'soundtrack', 'genre', 'mood', 'music change', 'music request'], name: 'Kuk', email: 'production@bmasiamusic.com' },
+    { keywords: ['sales', 'pricing', 'price', 'quote', 'quotation', 'trial', 'demo', 'buy', 'purchase', 'subscription'], name: 'Nikki', email: 'nikki.h@bmasiamusic.com' },
+  ];
+
+  for (const route of routing) {
+    if (route.keywords.some(kw => text.includes(kw))) {
+      return route;
+    }
+  }
+
+  return { name: 'Norbert', email: 'norbert@bmasiamusic.com' }; // default
+}
+
+// Preload Google Chat space members for @mentions
+loadSpaceMembers(SINGLE_SPACE_ID).catch(err => console.log('Member preload skipped:', err.message));
+
 // ElevenLabs escalation webhook - immediate alert when agent needs to escalate
 app.post('/webhooks/elevenlabs/escalate', async (req, res) => {
   try {
@@ -2326,7 +2350,13 @@ app.post('/webhooks/elevenlabs/escalate', async (req, res) => {
     console.log(`📍 Escalation source: ${source}`);
 
     // Format escalation alert for Google Chat
-    let alertMessage = '🚨 *Escalation Alert - Customer Needs Assistance*\n\n';
+    // Determine assigned team member based on issue
+    const assignee = getAssignedTeamMember(issue_summary, escalation_reason);
+    const mention = getMentionForEmail(assignee.email, assignee.name);
+    console.log(`🎯 Assigned to: ${assignee.name} (${assignee.email})`);
+
+    let alertMessage = `🎯 ${mention} *This one's for you!*\n\n`;
+    alertMessage += '🚨 *Escalation Alert - Customer Needs Assistance*\n\n';
 
     if (actualName) {
       alertMessage += `👤 *Name:* ${actualName}\n`;

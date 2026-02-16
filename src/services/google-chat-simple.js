@@ -7,6 +7,8 @@ class GoogleChatService {
     this.chat = null;
     this.auth = null;
     this.initialized = false;
+    this.memberMap = null; // email → "users/ID" cache
+    this.memberMapLoadedAt = null;
   }
 
   async initialize() {
@@ -153,6 +155,41 @@ class GoogleChatService {
     }
   }
 
+  // Load space members and build email → userId map (cached for 24h)
+  async loadSpaceMembers(spaceId) {
+    try {
+      if (!this.initialized) await this.initialize();
+
+      // Use cache if less than 24h old
+      const cacheAge = this.memberMapLoadedAt ? Date.now() - this.memberMapLoadedAt : Infinity;
+      if (this.memberMap && cacheAge < 24 * 60 * 60 * 1000) return;
+
+      console.log('📋 Loading Google Chat space members...');
+      const response = await this.chat.spaces.members.list({ parent: spaceId });
+      this.memberMap = {};
+      (response.data.memberships || []).forEach(m => {
+        if (m.member?.email) {
+          this.memberMap[m.member.email.toLowerCase()] = m.member.name; // "users/123..."
+          console.log(`   Found member: ${m.member.displayName || m.member.email} → ${m.member.name}`);
+        }
+      });
+      this.memberMapLoadedAt = Date.now();
+      console.log(`✅ Loaded ${Object.keys(this.memberMap).length} space members`);
+    } catch (error) {
+      console.error('⚠️ Could not load space members (mentions will fall back to bold text):', error.message);
+      this.memberMap = {};
+    }
+  }
+
+  // Get Google Chat mention string for an email, or fallback to bold name
+  getMentionForEmail(email, displayName) {
+    if (this.memberMap && this.memberMap[email.toLowerCase()]) {
+      return `<${this.memberMap[email.toLowerCase()]}>`;
+    }
+    // Fallback: just bold the name
+    return `*${displayName}*`;
+  }
+
   getPlatformIcon(platform) {
     const icons = {
       whatsapp: '💬',
@@ -290,5 +327,11 @@ module.exports = {
   },
   listSpaceMessages: (spaceId, pageSize) => {
     return googleChatService.listSpaceMessages(spaceId, pageSize);
+  },
+  loadSpaceMembers: (spaceId) => {
+    return googleChatService.loadSpaceMembers(spaceId);
+  },
+  getMentionForEmail: (email, displayName) => {
+    return googleChatService.getMentionForEmail(email, displayName);
   }
 };
